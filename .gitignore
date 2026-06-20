@@ -6,3 +6,11 @@ Desktop.ini
 
 # local packaging / build artifacts (Cloudflare Pages deploys from source)
 *.zip
+
+# dev tooling & local cruft — not part of the playable/deployed game
+tools/
+.claude/
+*.lnk
+Create Shortcut.bat
+*.psd
+Screenshot*.png

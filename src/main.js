@@ -472,11 +472,15 @@ function buildNightSky() {
   group.add(starLayer(150, 3.6, 0.95, THREE.AdditiveBlending, glowStar));
   group.add(starLayer(34, 5.0, 0.9, THREE.AdditiveBlending, glowStar));
 
-  // 3 animated twinkling stars — various sizes, never behind the moon
-  for (let i = 0; i < 3; i++) {
+  // 9 animated twinkling stars — various sizes, never behind the moon. The first 3
+  // glow plain white; the 6 extras take subtle near-white tints (white-purple /
+  // lavender and ice blue) so they read as the same glow with a touch of colour.
+  const TWINKLE_TINTS = ['#f2e9ff', '#e8daff', '#ddccff', '#e6f1ff', '#d3e8ff', '#ece7ff'];
+  for (let i = 0; i < 9; i++) {
     const tw = new THREE.Sprite(new THREE.SpriteMaterial({
       map: glowStar, transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, fog: false,
+      color: i < 3 ? '#ffffff' : TWINKLE_TINTS[i - 3],
     }));
     tw.scale.setScalar([3,4,5][(Math.random() * 3) | 0]);  // 33% each size
     tw.renderOrder = 0;
@@ -681,11 +685,61 @@ function makeClipPlanes() {
     new THREE.Plane(new THREE.Vector3(0, 0, -1), 0),   // z <= box.max.z
   ];
 }
+// keep the region INSIDE a box footprint. Axis-aligned by default, but if the box
+// carries an `obb` ({cx,cz,ry,hx,hz}) the planes rotate to the box's exact tilted
+// rectangle — so the shadow on a parked-askew car hugs the rendered body, not a
+// fat bounding box.
 function setClipToBox(planes, b) {
-  planes[0].constant = -b.min.x;
-  planes[1].constant = b.max.x;
-  planes[2].constant = -b.min.z;
-  planes[3].constant = b.max.z;
+  if (b.obb) {
+    const { cx, cz, ry, hx, hz } = b.obb;
+    const c = Math.cos(ry), s = Math.sin(ry);
+    const n1x = c, n1z = -s, n2x = s, n2z = c;        // car local +x / +z in world
+    const d1 = n1x * cx + n1z * cz, d2 = n2x * cx + n2z * cz;
+    planes[0].normal.set(n1x, 0, n1z);  planes[0].constant = -d1 + hx;
+    planes[1].normal.set(-n1x, 0, -n1z); planes[1].constant = d1 + hx;
+    planes[2].normal.set(n2x, 0, n2z);  planes[2].constant = -d2 + hz;
+    planes[3].normal.set(-n2x, 0, -n2z); planes[3].constant = d2 + hz;
+  } else {
+    planes[0].normal.set(1, 0, 0);  planes[0].constant = -b.min.x;
+    planes[1].normal.set(-1, 0, 0); planes[1].constant = b.max.x;
+    planes[2].normal.set(0, 0, 1);  planes[2].constant = -b.min.z;
+    planes[3].normal.set(0, 0, -1); planes[3].constant = b.max.z;
+  }
+}
+// inverse of makeClipPlanes: with clipIntersection (union) these KEEP the region
+// OUTSIDE the box footprint — so the floor disc only shows the part hanging off
+// the obstacle, while the part over the box is cut out (the top blob draws it).
+function makeOuterClipPlanes() {
+  return [
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // keep x <= box.min.x
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),    // keep x >= box.max.x
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), 0),   // keep z <= box.min.z
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),    // keep z >= box.max.z
+  ];
+}
+function setOuterClipToBox(planes, b) {
+  if (b.obb) {
+    const { cx, cz, ry, hx, hz } = b.obb;
+    const c = Math.cos(ry), s = Math.sin(ry);
+    const n1x = c, n1z = -s, n2x = s, n2z = c;
+    const d1 = n1x * cx + n1z * cz, d2 = n2x * cx + n2z * cz;
+    planes[0].normal.set(-n1x, 0, -n1z); planes[0].constant = d1 - hx;
+    planes[1].normal.set(n1x, 0, n1z);   planes[1].constant = -d1 - hx;
+    planes[2].normal.set(-n2x, 0, -n2z); planes[2].constant = d2 - hz;
+    planes[3].normal.set(n2x, 0, n2z);   planes[3].constant = -d2 - hz;
+  } else {
+    planes[0].normal.set(-1, 0, 0); planes[0].constant = b.min.x;
+    planes[1].normal.set(1, 0, 0);  planes[1].constant = -b.max.x;
+    planes[2].normal.set(0, 0, -1); planes[2].constant = b.min.z;
+    planes[3].normal.set(0, 0, 1);  planes[3].constant = -b.max.z;
+  }
+}
+// off any obstacle: keep the whole disc (union of half-spaces that covers all space)
+function clearOuterClip(planes) {
+  planes[0].constant = 1e9;
+  planes[1].constant = 1e9;
+  planes[2].constant = 1e9;
+  planes[3].constant = 1e9;
 }
 function makeTopBlob(geo) {
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
@@ -727,7 +781,10 @@ function buildPlayer() {
   const blobGeo = new THREE.CircleGeometry(0.42, 20);
   const blob = new THREE.Mesh(
     blobGeo,
-    new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.35, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: '#000', transparent: true, opacity: 0.35, depthWrite: false,
+      clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
+    })
   );
   blob.rotation.x = -Math.PI / 2;
   blob.position.y = 0.02;
@@ -1629,6 +1686,33 @@ const glassMat = new THREE.MeshLambertMaterial({ color: '#10161f' });
 const tyreMat = new THREE.MeshLambertMaterial({ color: '#15151a' });
 const lampMat = new THREE.MeshBasicMaterial({ color: '#fff2c0' });
 const tailMat = new THREE.MeshBasicMaterial({ color: '#d62300' });
+// bright silver for 'donk' spinner rims — slight self-glow so it glints at night
+const chromeMat = new THREE.MeshLambertMaterial({ color: '#c9ccd6', emissive: '#3b3e48' });
+
+// outward-pointing silver spoke "teepee" for a donk/spinner rim (built along +x,
+// the wheel axis); the caller flips it for the left-hand wheels.
+function buildDonkRim(wheelR) {
+  const grp = new THREE.Group();
+  const apex = wheelR * 0.9;        // how far the teepee juts out past the tyre
+  const baseR = wheelR * 0.62;      // spread of the spokes at the tyre face
+  const nSpokes = 7;
+  for (let s = 0; s < nSpokes; s++) {
+    const ang = (s / nSpokes) * Math.PI * 2;
+    const by = Math.cos(ang) * baseR, bz = Math.sin(ang) * baseR;
+    const len = Math.hypot(apex, by, bz);
+    const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, len, 5), chromeMat);
+    spoke.position.set(apex / 2, by / 2, bz / 2);
+    spoke.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0), new THREE.Vector3(apex, -by, -bz).normalize());
+    grp.add(spoke);
+  }
+  // chrome hub at the tyre face + a pointed cap on the tip to finish the teepee
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(baseR * 0.6, baseR * 0.72, 0.06, 12), chromeMat);
+  hub.rotation.z = Math.PI / 2; grp.add(hub);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 6), chromeMat);
+  cap.rotation.z = -Math.PI / 2; cap.position.x = apex; grp.add(cap);
+  return grp;
+}
 
 // detailed parked car with four body types; rng picks the type
 function buildCar(group, boxes, x, z, col, rng, yaw) {
@@ -1640,10 +1724,22 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
 
   // dimensions per type (length along local z)
   let L = 3.6, W = 1.9, bodyH = 0.62, bodyY = 0.5, cabinL = 1.7, cabinH = 0.6, cabinZ = -0.1, cabinW = 1.62;
-  if (type === 'coupe') { L = 3.4; W = 1.86; cabinL = 1.4; cabinZ = -0.25; }
-  else if (type === 'sedan') { L = 3.9; W = 1.92; cabinL = 1.9; }
+  let wheelR = 0.36, donk = false;
+  if (type === 'coupe') {
+    L = 3.4; W = 1.86; cabinL = 1.4; cabinZ = -0.25;
+    if (rng() < 0.5) L *= 1.25;                 // half of coupes are 25% longer
+  } else if (type === 'sedan') {
+    L = 3.9; W = 1.92; cabinL = 1.9;
+    if (rng() < 0.1) { donk = true; wheelR = 0.52; bodyY += 0.22; }  // raised 24" donk
+  }
   else if (type === 'suv') { L = 3.9; W = 2.0; bodyH = 0.8; bodyY = 0.58; cabinL = 2.1; cabinH = 0.78; cabinW = 1.78; }
-  else if (type === 'truck') { L = 4.4; W = 2.0; bodyH = 0.7; bodyY = 0.62; cabinL = 1.35; cabinZ = -L / 2 + 1.1; cabinH = 0.8; cabinW = 1.84; }
+  else if (type === 'truck') {
+    L = 4.4; W = 2.0; bodyH = 0.7; bodyY = 0.62; cabinL = 1.35; cabinZ = -L / 2 + 1.1; cabinH = 0.8; cabinW = 1.84;
+    if (rng() < 0.5) {                          // half of trucks are 33% larger
+      const k = 1.33;
+      L *= k; W *= k; bodyH *= k; bodyY *= k; cabinL *= k; cabinZ *= k; cabinH *= k; cabinW *= k; wheelR *= k;
+    }
+  }
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, bodyH, L), paint);
   body.position.y = bodyY; body.castShadow = true; body.receiveShadow = true; g.add(body);
@@ -1664,12 +1760,18 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
   glass.position.set(0, bodyY + bodyH / 2 + cabinH * 0.58, cabinZ); g.add(glass);
 
   // wheels
-  const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 12);
+  const wheelGeo = new THREE.CylinderGeometry(wheelR, wheelR, 0.26, 12);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const wn = new THREE.Mesh(wheelGeo, tyreMat);
     wn.rotation.z = Math.PI / 2;
-    wn.position.set(sx * (W / 2 - 0.02), 0.36, sz * (L / 2 - 0.85));
+    wn.position.set(sx * (W / 2 - 0.02), wheelR, sz * (L / 2 - 0.85));
     wn.castShadow = true; g.add(wn);
+    if (donk) {   // silver spinner teepee sticking out of each tyre's outer face
+      const rim = buildDonkRim(wheelR);
+      rim.position.set(sx * (W / 2 - 0.02 + 0.14), wheelR, sz * (L / 2 - 0.85));
+      if (sx < 0) rim.rotation.y = Math.PI;
+      g.add(rim);
+    }
   }
   // head/tail lights
   for (const sx of [-1, 1]) {
@@ -1680,21 +1782,28 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
   }
 
   group.add(g);
-  // collision AABBs; for rotated cars, size the boxes to cover the tilted extents
-  const ry = g.rotation.y, mx = 0.14;
+  // Collision AABBs hug the rendered car (tight tilted-extent bound, tiny margin).
+  // Each box also carries an `obb` so the blob shadow clips to the EXACT rotated
+  // footprint of the body/cabin — matching the render even on askew or scaled-up
+  // (33% truck / 25% longer coupe) models.
+  const ry = g.rotation.y, mx = 0.03;
   const ac = Math.abs(Math.cos(ry)), as = Math.abs(Math.sin(ry));
   const bodyHX = W / 2 * ac + L / 2 * as + mx;
   const bodyHZ = W / 2 * as + L / 2 * ac + mx;
   const bodyTop = bodyY + bodyH / 2;
-  boxes.push(new THREE.Box3(
+  const bodyBox = new THREE.Box3(
     new THREE.Vector3(x - bodyHX, 0, z - bodyHZ),
-    new THREE.Vector3(x + bodyHX, bodyTop, z + bodyHZ)));
+    new THREE.Vector3(x + bodyHX, bodyTop, z + bodyHZ));
+  bodyBox.obb = { cx: x, cz: z, ry, hx: W / 2, hz: L / 2 };
+  boxes.push(bodyBox);
   const cabHX = cabinW / 2 * ac + cabinL / 2 * as + mx;
   const cabHZ = cabinW / 2 * as + cabinL / 2 * ac + mx;
   const ccx = x + cabinZ * Math.sin(ry), ccz = z + cabinZ * Math.cos(ry);
-  boxes.push(new THREE.Box3(
+  const cabBox = new THREE.Box3(
     new THREE.Vector3(ccx - cabHX, 0, ccz - cabHZ),
-    new THREE.Vector3(ccx + cabHX, bodyTop + cabinH, ccz + cabHZ)));
+    new THREE.Vector3(ccx + cabHX, bodyTop + cabinH, ccz + cabHZ));
+  cabBox.obb = { cx: ccx, cz: ccz, ry, hx: cabinW / 2, hz: cabinL / 2 };
+  boxes.push(cabBox);
 }
 
 const crateMat = new THREE.MeshLambertMaterial({ map: crateTex });
@@ -1802,7 +1911,10 @@ function makeEnemy(group, def, x, z, rng) {
   const blobGeo = new THREE.CircleGeometry(def.r * 0.95, 18);
   const blob = new THREE.Mesh(
     blobGeo,
-    new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.34, depthWrite: false }));
+    new THREE.MeshBasicMaterial({
+      color: '#000', transparent: true, opacity: 0.34, depthWrite: false,
+      clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
+    }));
   blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.03, z);
   group.add(blob);
   const blobTop = makeTopBlob(blobGeo);
@@ -2714,6 +2826,9 @@ function updateEnemies(dt, time) {
       e.blob.position.set(e.pos.x, 0.03, e.pos.z);
       // slice the shadow onto any obstacle the enemy/boss is on or hopping over
       const topBox = level.boxes ? shadowTopBox(e.pos.x, e.pos.z, e.pos.y, e.def.r * 0.95, level.boxes) : null;
+      // floor layer: cut out the obstacle footprint so it can't poke out underneath
+      if (topBox) setOuterClipToBox(e.blob.material.clippingPlanes, topBox);
+      else clearOuterClip(e.blob.material.clippingPlanes);
       if (e.blobTop) {
         if (topBox) {
           setClipToBox(e.blobTop.material.clippingPlanes, topBox);
@@ -3266,11 +3381,15 @@ function updateCamera(dt, time) {
       if (PLAYER.sliding) { tSc *= 1.35; tOp = 0.52; }
       else if (PLAYER.crouching) { tSc *= 1.15; tOp = 0.48; }
       const ks = clamp(12 * dt, 0, 1);
-      // ground layer: always on the floor — shows the part of the slice that hangs off
+      // ground layer: always on the floor — shows only the part of the slice that
+      // hangs OFF the obstacle (the footprint is cut out so it can't peek out from
+      // under the box); the top layer draws the part sitting on the box.
       playerBlob.position.y = 0.02 - PLAYER.pos.y;
       playerBlob.scale.x = lerp(playerBlob.scale.x, tSc, ks);
       playerBlob.scale.y = lerp(playerBlob.scale.y, tSc, ks);
       playerBlob.material.opacity = lerp(playerBlob.material.opacity, tOp, ks);
+      if (topBox) setOuterClipToBox(playerBlob.material.clippingPlanes, topBox);
+      else clearOuterClip(playerBlob.material.clippingPlanes);
       // top layer: the slice sitting on the obstacle, clipped to its footprint
       if (playerBlobTop) {
         if (topBox) {
