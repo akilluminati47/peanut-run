@@ -545,11 +545,23 @@ function randomizeTwinkles() {
 }
 randomizeTwinkles();
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function resizeRenderer() {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', resizeRenderer);
+// iOS/iPadOS reports stale innerWidth/innerHeight mid-rotation, so the canvas keeps
+// the old size → letterboxed black bar / the page looks shoved to one side. Re-apply
+// the true size a few frames after the orientation settles, and track the visual
+// viewport (address bar show/hide, split view) when it's available.
+window.addEventListener('orientationchange', () => {
+  resizeRenderer();
+  setTimeout(resizeRenderer, 150);
+  setTimeout(resizeRenderer, 400);
 });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeRenderer);
 
 /* ============================================================== assets */
 
@@ -1043,6 +1055,13 @@ function rumble(strong = 0.6, weak = 0.4, duration = 200) {
 
 /* ============================ touch controls ============================ */
 const TOUCH_CAPABLE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// Touch-first devices (phones/tablets) start in touch mode so menus are sized for
+// touch from the very first frame — otherwise the desktop-size title/menu shows huge
+// until the first tap flips on `body.touch`. A mousemove/keydown switches back to kbm.
+if (TOUCH_CAPABLE && window.matchMedia && matchMedia('(pointer: coarse)').matches) {
+  inputMode = 'touch';
+  document.body.classList.add('touch');
+}
 const touch = { mx: 0, my: 0, lookDX: 0, lookDY: 0, shoot: false, jumpEdge: false, slideEdge: false, crouchHold: false, sprint: false };
 let touchMenuActive = false;
 let touchAimHeld = false;          // right-side hold = aim + fire (crosshair shows while held)
@@ -1250,7 +1269,14 @@ function updateMenuCursor(dt) {
 }
 
 const TEST = new URLSearchParams(location.search).has('test');
-function lockPointer() { if (!TEST) canvas.requestPointerLock(); }
+function lockPointer() {
+  // never on touch (no pointer device) — and never let a missing/failed Pointer Lock
+  // API throw: that would abort startRun/nextLevel/resumeFromPause and freeze the UI
+  // (e.g. the "BACK TO THE GRIND" button doing nothing on iPad).
+  if (TEST || inputMode === 'touch') return;
+  try { const p = canvas.requestPointerLock?.(); if (p && p.catch) p.catch(() => {}); }
+  catch (_) { /* ignore */ }
+}
 canvas.addEventListener('click', () => {
   if (state === 'playing' && document.pointerLockElement !== canvas) lockPointer();
 });
@@ -2328,7 +2354,7 @@ function updateFireworks(dt) {
   level.burger.material.rotation += dt * 2.2;
 
   if (fwTimer > 5.2) {
-    document.exitPointerLock();
+    try { document.exitPointerLock?.(); } catch (_) {}   // unguarded throw here froze the order screen on iPad
     showComplete();
   }
 }
@@ -2414,7 +2440,7 @@ function hurtPlayer(fromPos) {
   PLAYER.vel.z += away.z * 9;
   PLAYER.vel.y = 4.5;
   if (PLAYER.hp <= 0) {
-    document.exitPointerLock();
+    try { document.exitPointerLock?.(); } catch (_) {}
     setState('dead');
   }
 }
@@ -3292,7 +3318,7 @@ function tick() {
 
   pollGamepad();
   // gamepad Start pauses during play
-  if (state === 'playing' && gp.startEdge) { document.exitPointerLock(); AudioFX.init(); AudioFX.fireBounce(400); setState('paused'); }
+  if (state === 'playing' && gp.startEdge) { try { document.exitPointerLock?.(); } catch (_) {} AudioFX.init(); AudioFX.fireBounce(400); setState('paused'); }
   else if (state === 'paused' && gp.startEdge) resumeFromPause();
   if (gp.selectEdge) setCamView(saveData.cam === 'first' ? 'third' : 'first');
   updateMenuCursor(dt);

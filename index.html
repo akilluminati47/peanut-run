@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="author" content="AK & Co. (akilluminati47)">
 <meta name="copyright" content="© 2026 AK & Co. — All Rights Reserved">
@@ -50,8 +50,13 @@
   *{margin:0;padding:0;box-sizing:border-box;
     -webkit-user-select:none;-moz-user-select:none;user-select:none;
     -webkit-tap-highlight-color:transparent;}
-  html,body{width:100%;height:100%;overflow:hidden;background:var(--grease);font-family:var(--body);}
-  canvas#game{display:block;width:100%;height:100%;cursor:crosshair;}
+  /* position:fixed pins the page so iOS Safari can't rubber-band / shift it sideways
+     (the "stuck to the left with a black bar on the right" bug); touch-action:none +
+     overscroll-behavior:none kill the browser's own pan/zoom gestures over the game. */
+  html,body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;
+    background:var(--grease);font-family:var(--body);
+    overscroll-behavior:none;touch-action:none;-webkit-touch-callout:none;}
+  canvas#game{display:block;position:fixed;inset:0;width:100%;height:100%;cursor:crosshair;}
 
   /* ============ shared chrome ============ */
   .checker{
@@ -246,6 +251,10 @@
   .screen{
     position:fixed;inset:0;display:none;align-items:center;justify-content:center;
     flex-direction:column;z-index:10;
+    /* keep content off every edge (incl. notch / rounded corners via safe-area insets)
+       on every resolution; the checker ::before/::after stripes are pinned separately */
+    padding:max(30px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right))
+            max(30px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));
     background:
       radial-gradient(ellipse at 50% 120%, rgba(214,35,0,.35), transparent 60%),
       radial-gradient(ellipse at 50% -20%, rgba(255,198,46,.18), transparent 55%),
@@ -564,17 +573,20 @@
   /* mobile: scale splash text up a touch (outline is .04em so it stays in proportion) */
   body.touch #loadsplash .title{font-size:clamp(42px,10vw,72px);}
 
-  /* landscape: hide PAUSED and CHECK PLEASE to save space */
+  /* landscape touch — HUD reposition applies to ALL landscape touch (phone + tablet) */
   @media (orientation:landscape){
-    body.touch #resume .title,
-    body.touch #quitbtn,
-    body.touch #deadquitbtn{display:none;}
     body.touch #levelchip{left:24px;}
     body.touch #kills{right:24px;}
     body.touch #mhealth{bottom:6px;right:24px;left:auto;transform:none;}
     body.touch #tmove{left:40px;}
-    /* short landscape: shrink the order-up stack so NEXT LEVEL fits without
-       needing to scroll */
+  }
+
+  /* SHORT (phone) landscape: little vertical room — hide PAUSED + CHECK PLEASE and
+     shrink the order-up stack hard so NEXT LEVEL fits without scrolling. */
+  @media (orientation:landscape) and (max-height:559px){
+    body.touch #resume .title,
+    body.touch #quitbtn,
+    body.touch #deadquitbtn{display:none;}
     body.touch #complete{padding:20px 12px;}
     body.touch #orderup{font-size:clamp(26px,4.6vw,44px);}
     body.touch .completesub{font-size:clamp(22px,4vw,38px);margin-top:2px;}
@@ -584,6 +596,30 @@
     body.touch .receipt .line{margin:3px 0;} body.touch .receipt hr{margin:5px 0;}
     body.touch .receipt .stars{margin-top:6px;}
     body.touch #nextbtn{margin-top:10px;}
+  }
+
+  /* TABLET landscape (iPad etc., plenty of height): touch is on from the first frame,
+     so the desktop-size menu would swamp the screen — scale the title/menu/order-up
+     down to sane proportions, and KEEP the PAUSED title + CHECK PLEASE buttons since
+     there's room for them here. */
+  @media (orientation:landscape) and (min-height:560px){
+    body.touch .title{font-size:clamp(40px,7vw,76px);margin-top:0;}
+    body.touch #orderup{font-size:clamp(40px,7vw,76px);}
+    body.touch #menu .title{margin-top:8px;}
+    body.touch .menupanel{margin-top:18px;padding:14px 30px;}
+    body.touch .menupanel h3{font-size:17px;margin-bottom:8px;padding-bottom:7px;}
+    body.touch .mrow{font-size:13px;margin:6px 0;}
+    body.touch #hiscore{margin-top:12px;gap:10px;}
+    body.touch .scorechip b,body.touch .selctrl b{font-size:26px;}
+    body.touch .bigbtn{margin-top:18px;}
+    /* order-up: roomy but not desktop-huge */
+    body.touch #complete{padding:24px 16px;}
+    body.touch .completesub{font-size:clamp(30px,5.4vw,52px);margin-top:6px;}
+    body.touch .receipt{margin-top:16px;padding:16px 22px 18px;font-size:12px;width:min(380px,72vw);}
+    body.touch #nextbtn{margin-top:16px;}
+    /* PAUSED title smaller so it clears the checker stripe with the panel below it */
+    body.touch #resume .title{font-size:clamp(34px,5vw,52px);margin-top:6px;}
+    body.touch .pausepanel{margin-top:14px;}
   }
   @media (max-height:560px){
     /* shrink the top HUD chrome so rows never collide on short non-touch windows too */
@@ -748,6 +784,6 @@
 <script type="importmap">
 { "imports": { "three": "./libs/three.module.js" } }
 </script>
-<script type="module" src="src/main.js?v=50"></script>
+<script type="module" src="src/main.js?v=51"></script>
 </body>
 </html>
