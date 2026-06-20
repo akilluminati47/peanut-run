@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<link rel="shortcut icon" href="/favicon.ico?v=4">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png?v=4">
+<link rel="icon" type="image/png" sizes="128x128" href="/favicon-128.png?v=4">
+<link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png?v=4">
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=4">
+<link rel="apple-touch-icon" href="/favicon-512.png?v=4">
+<title>PEANUT RUN</title>
+<!-- ===== rich link embeds (Discord / X / iMessage / Slack / Telegram / Facebook) =====
+     One line of text everywhere — "BUNGULATE TO THE BURGER!" — with the 512 Peanut Run
+     icon as the preview image. No description/site-name so the title is the only text. -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://peanut-run.pages.dev/">
+<meta property="og:title" content="BUNGULATE TO THE BURGER!">
+<meta property="og:image" content="https://peanut-run.pages.dev/embed-banner.png?v=4">
+<meta property="og:image:secure_url" content="https://peanut-run.pages.dev/embed-banner.png?v=4">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="BUNGULATE TO THE BURGER!">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BUNGULATE TO THE BURGER!">
+<meta name="twitter:image" content="https://peanut-run.pages.dev/embed-banner.png?v=4">
+<meta name="twitter:image:alt" content="BUNGULATE TO THE BURGER!">
+<meta name="theme-color" content="#d62300">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Rubik:wght@400;600;800&family=Chivo+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ketchup:#d62300;
+    --ketchup-dk:#8f1500;
+    --mustard:#ffc62e;
+    --cheese:#ff9214;
+    --bun:#f2d8a7;
+    --cream:#fff3d6;
+    --pickle:#6aa84f;
+    --grease:#2a0f0a;
+    --grease-dk:#1a0805;
+    --display:'Luckiest Guy', 'Arial Black', cursive;
+    --body:'Rubik', sans-serif;
+    --mono:'Chivo Mono', 'Consolas', monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;
+    -webkit-user-select:none;-moz-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--grease);font-family:var(--body);}
+  canvas#game{display:block;width:100%;height:100%;cursor:crosshair;}
+
+  /* ============ shared chrome ============ */
+  .checker{
+    background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 0 0/28px 28px;
+  }
+  /* cartoon glove cursor everywhere in the menus/GUI (kbm), and a virtual glove
+     for gamepad navigation */
+  /* the animated DOM #glove is the cursor on every menu (both mouse & gamepad),
+     so the breathing/press animation works in both. While a menu is open the
+     system cursor is force-hidden EVERYWHERE so it can never double up with or
+     sit on top of the glove (!important beats the per-element cursor rules). */
+  body.glove-on, body.glove-on *{ cursor: none !important; }
+  .screen, .screen *{ cursor: none; }
+  /* no browser focus rings (Tab is reserved for pause; we use glove/hover feedback) */
+  .screen button:focus, .screen [role=button]:focus, .senspip:focus, .segbtn:focus, .selarrow:focus{ outline:none; }
+  #glove{
+    position:fixed; left:0; top:0; width:44px; height:50px; z-index:300;
+    background-image: var(--glove-img); background-size:contain; background-repeat:no-repeat;
+    pointer-events:none; display:none; transform-origin:22px 3px;
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,.55));
+  }
+  #glove.hover{ animation: gloveBob .55s ease-in-out infinite; }
+  #glove.press{ transform: scale(.86); }
+  @keyframes gloveBob{ 0%,100%{ transform: translateY(0) scale(1); } 50%{ transform: translateY(-5px) scale(1.08); } }
+  body.pad, body.pad .screen, body.pad .screen *{ cursor: none !important; }
+
+  /* controller button chips in Today's Menu */
+  .keycap.pad{ background:#2a2f3a; color:var(--cream); border-color:#0c0e14; box-shadow:0 3px 0 #0c0e14; min-width:34px; }
+  .keycap.pad.a{ background:#3aa655; }
+  #inputtag{
+    font-family:var(--body); font-weight:800; font-size:10px; letter-spacing:1.5px;
+    color:var(--grease); background:var(--mustard); border:2px solid var(--grease);
+    border-radius:6px; padding:2px 7px 1px; margin-left:6px; vertical-align:middle;
+  }
+
+  .keycap{
+    display:inline-block;min-width:30px;padding:3px 9px 1px;text-align:center;
+    background:var(--cream);color:var(--grease);border-radius:7px;
+    border:2px solid var(--grease);box-shadow:0 3px 0 var(--grease);
+    font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.5px;
+    transform:translateY(-1px);
+  }
+
+  /* ============ HUD ============ */
+  #hud{position:fixed;inset:0;pointer-events:none;user-select:none;display:none;}
+  #hud.on{display:block;}
+
+  #levelchip{
+    position:absolute;top:18px;left:18px;
+    background:var(--mustard);color:var(--grease);
+    font-family:var(--display);font-size:26px;line-height:1;
+    padding:14px 22px 8px;border-radius:12px;
+    border:4px solid var(--grease);box-shadow:0 6px 0 rgba(0,0,0,.45);
+    transform:rotate(-2deg);
+  }
+  #levelchip small{display:block;font-family:var(--body);font-weight:800;font-size:10px;letter-spacing:2px;margin-bottom:4px;opacity:.75;}
+
+  #timer{
+    position:absolute;top:18px;left:50%;transform:translateX(-50%) rotate(.5deg);
+    background:var(--grease-dk);color:var(--mustard);text-align:center;
+    font-family:var(--mono);font-weight:700;font-size:30px;letter-spacing:1px;
+    padding:10px 26px;border-radius:12px;border:4px solid var(--mustard);
+    box-shadow:0 6px 0 rgba(0,0,0,.45), inset 0 0 18px rgba(255,198,46,.18);
+    pointer-events:auto;cursor:pointer;transition:transform .08s,box-shadow .08s;
+  }
+  #timer:hover{box-shadow:0 6px 0 rgba(0,0,0,.45), 0 0 14px rgba(255,198,46,.5), inset 0 0 18px rgba(255,198,46,.18);}
+  #timer:active{transform:translateX(-50%) rotate(.5deg) translateY(3px);box-shadow:0 3px 0 rgba(0,0,0,.45), inset 0 0 18px rgba(255,198,46,.18);}
+  #timer b{display:block;line-height:1;}
+  /* "tap to pause" note appears only on touch devices, kept lean */
+  #timernote{display:none;font-family:var(--body);font-weight:800;font-size:9px;letter-spacing:1.5px;color:var(--mustard);opacity:.8;}
+  body.touch #timernote{display:block;margin-top:2px;}
+
+  #alltime{
+    position:absolute;top:18px;right:18px;text-align:right;
+    background:var(--cream);color:var(--grease);
+    padding:12px 18px;border-radius:12px;border:4px solid var(--grease);
+    box-shadow:0 6px 0 rgba(0,0,0,.45);transform:rotate(1.5deg);
+    font-weight:800;font-size:13px;letter-spacing:1px;
+  }
+  #alltime b{font-family:var(--display);font-size:24px;display:block;line-height:1;margin-top:2px;color:var(--ketchup);}
+
+  /* hearts = peanuts */
+  #hearts{position:absolute;bottom:24px;left:22px;display:flex;gap:8px;}
+  #hearts{flex-wrap:wrap;max-width:600px;gap:6px;}
+  #hearts img{width:42px;height:42px;image-rendering:auto;filter:drop-shadow(0 4px 0 rgba(0,0,0,.5));transition:filter .2s,transform .2s,opacity .2s;animation:heartPop .25s cubic-bezier(.34,1.7,.5,1);}
+  /* gold-max: all peanuts go golden and shimmer (like the grease meter at max) */
+  #hearts img.goldmax{filter:drop-shadow(0 0 7px rgba(255,210,60,.95)) saturate(1.7) brightness(1.18) sepia(.5) hue-rotate(-18deg);animation:heartGold .8s ease-in-out infinite;}
+  @keyframes heartPop{from{transform:scale(0) rotate(-20deg);}to{transform:scale(1);}}
+  @keyframes heartGold{0%,100%{filter:drop-shadow(0 0 6px rgba(255,210,60,.8)) saturate(1.6) brightness(1.12) sepia(.5) hue-rotate(-18deg);}50%{filter:drop-shadow(0 0 12px rgba(255,230,120,1)) saturate(1.9) brightness(1.3) sepia(.6) hue-rotate(-18deg);}}
+
+  /* sprint meter — "GREASE" gauge */
+  #sprintwrap{
+    position:absolute;bottom:26px;left:50%;transform:translateX(-50%);
+    width:min(380px,40vw);
+  }
+  #sprintlabel{
+    font-family:var(--display);color:var(--cream);font-size:15px;letter-spacing:2px;
+    text-shadow:0 3px 0 rgba(0,0,0,.6);margin-bottom:5px;text-align:center;
+  }
+  #sprintbar{
+    height:22px;border-radius:11px;border:4px solid var(--grease-dk);
+    background:rgba(0,0,0,.55);overflow:hidden;box-shadow:0 5px 0 rgba(0,0,0,.45);
+  }
+  #sprintfill{
+    height:100%;width:100%;border-radius:7px;position:relative;overflow:hidden;
+    background:linear-gradient(180deg,#ffd75e 0%, var(--mustard) 45%, var(--cheese) 100%);
+    box-shadow:inset 0 -4px 0 rgba(0,0,0,.18);
+    transition:width .08s linear;
+  }
+  #sprintfill.low{background:linear-gradient(180deg,#ff7a52 0%, var(--ketchup) 60%, var(--ketchup-dk) 100%);}
+  /* max-grease mode (boss meter at +150%) */
+  #sprintwrap.maxgrease #sprintbar{border-color:#fff3d6;box-shadow:0 5px 0 rgba(0,0,0,.45), 0 0 18px rgba(255,198,46,.9);}
+  #sprintwrap.maxgrease #sprintfill{background:linear-gradient(180deg,#fff6d0 0%, #ffd23b 45%, #ff9214 100%);animation:greaseGlow .8s ease-in-out infinite;}
+  #sprintwrap.maxgrease #sprintlabel::after{content:" — MAX!";color:#ffd23b;}
+  @keyframes greaseGlow{0%,100%{filter:brightness(1);}50%{filter:brightness(1.35);}}
+
+  /* hot-grease specks rising through the bar at full health */
+  .grease-speck{
+    position:absolute; width:3px; height:3px; border-radius:50%;
+    background:#fff3d6; pointer-events:none;
+    animation: speckRise linear forwards;
+  }
+  @keyframes speckRise{
+    0%{ bottom:0; opacity:0.9; }
+    100%{ bottom:22px; opacity:0; }
+  }
+
+  /* veggies-blasted: bottom-right (clear of the boss health bar up top) */
+  #kills{
+    position:absolute;bottom:24px;right:22px;text-align:right;transform:rotate(-1deg);
+  }
+  #kills small{display:block;font-family:var(--body);font-weight:800;font-size:10px;letter-spacing:2px;color:var(--mustard);}
+  #kills b{font-family:var(--display);font-size:24px;line-height:1;color:var(--cream);text-shadow:0 3px 0 rgba(0,0,0,.6);}
+
+  /* crosshair — sesame seed */
+  /* boss health bar */
+  #bossbar{
+    position:absolute;top:78px;left:50%;transform:translateX(-50%);
+    width:min(620px,68vw);display:none;text-align:center;
+  }
+  #bossbar.on{display:block;animation:bossIn .4s cubic-bezier(.34,1.7,.5,1);}
+  @keyframes bossIn{from{transform:translateX(-50%) scale(.7);opacity:0;}to{transform:translateX(-50%) scale(1);opacity:1;}}
+  #bossname{
+    font-family:var(--display);color:var(--cream);font-size:21px;letter-spacing:2px;
+    text-shadow:0 3px 0 var(--ketchup-dk),0 0 16px rgba(214,35,0,.7);margin-bottom:5px;
+  }
+  #bossname::before,#bossname::after{content:"☠";color:var(--ketchup);margin:0 10px;}
+  #bosshpwrap{
+    height:24px;border-radius:13px;border:4px solid var(--grease-dk);
+    background:rgba(0,0,0,.6);overflow:hidden;box-shadow:0 5px 0 rgba(0,0,0,.5);
+  }
+  #bosshp{
+    height:100%;width:100%;border-radius:9px;
+    background:linear-gradient(180deg,#8bd45a 0%, var(--pickle) 55%, #2f5e1d 100%);
+    box-shadow:inset 0 -4px 0 rgba(0,0,0,.2);transition:width .12s ease-out;
+  }
+
+  #crosshair{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:46px;height:46px;display:none;
+  }
+  #crosshair.on{display:block;}
+  #crosshair::before{
+    content:"";position:absolute;inset:0;border:3px dashed var(--mustard);
+    border-radius:50%;animation:spin 6s linear infinite;
+    filter:drop-shadow(0 0 4px rgba(0,0,0,.8));
+  }
+  #crosshair::after{
+    content:"";position:absolute;top:50%;left:50%;width:9px;height:9px;
+    transform:translate(-50%,-50%);
+    border:2px solid var(--cream);border-radius:50%;background:transparent;
+    box-shadow:0 0 3px rgba(0,0,0,.9), inset 0 0 2px rgba(0,0,0,.6);
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  #damage{
+    position:absolute;inset:0;pointer-events:none;opacity:0;
+    background:radial-gradient(ellipse at center, transparent 40%, rgba(214,35,0,.65) 100%);
+    transition:opacity .35s;
+  }
+  #damage.hit{opacity:1;transition:opacity .05s;}
+
+  #toast{
+    position:absolute;top:26%;left:50%;transform:translate(-50%,-50%) rotate(-3deg) scale(0);
+    font-family:var(--display);font-size:54px;color:var(--mustard);
+    -webkit-text-stroke:.04em var(--grease);paint-order:stroke fill;text-shadow:0 .11em 0 rgba(0,0,0,.5);
+    transition:transform .25s cubic-bezier(.34,1.8,.5,1);white-space:nowrap;
+  }
+  #toast.show{transform:translate(-50%,-50%) rotate(-3deg) scale(1);}
+
+  /* ============ full-screen overlays ============ */
+  .screen{
+    position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    flex-direction:column;z-index:10;
+    background:
+      radial-gradient(ellipse at 50% 120%, rgba(214,35,0,.35), transparent 60%),
+      radial-gradient(ellipse at 50% -20%, rgba(255,198,46,.18), transparent 55%),
+      var(--grease);
+  }
+  .screen.on{display:flex;}
+  .screen::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:26px;
+    background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 0 0/26px 26px;
+    border-bottom:4px solid var(--grease-dk);
+  }
+  .screen::after{
+    content:"";position:absolute;bottom:0;left:0;right:0;height:26px;
+    background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 13px 0/26px 26px;
+    border-top:4px solid var(--grease-dk);
+  }
+
+  .title{
+    font-family:var(--display);text-align:center;line-height:.95;
+    font-size:clamp(56px,11vw,120px);
+    color:var(--mustard);
+    -webkit-text-stroke:.04em var(--grease-dk);paint-order:stroke fill;
+    text-shadow:0 .066em 0 var(--ketchup-dk), 0 .13em .25em rgba(0,0,0,.6);
+    transform:rotate(-2.5deg);
+    animation:bob 2.6s ease-in-out infinite;
+  }
+  .title .alt{color:var(--ketchup);-webkit-text-stroke:.04em var(--cream);paint-order:stroke fill;display:block;font-size:.46em;letter-spacing:2px;}
+  @keyframes bob{0%,100%{transform:rotate(-2.5deg) translateY(0);}50%{transform:rotate(-2.5deg) translateY(-10px);}}
+
+  .menupanel{
+    margin-top:34px;background:var(--cream);color:var(--grease);
+    border:5px solid var(--grease-dk);border-radius:18px;
+    box-shadow:0 10px 0 rgba(0,0,0,.5);
+    padding:22px 34px;min-width:min(560px,90vw);
+    transform:rotate(.6deg);
+  }
+  .menupanel h3{
+    font-family:var(--display);font-size:20px;letter-spacing:2px;color:var(--ketchup);
+    text-align:center;margin-bottom:12px;border-bottom:3px dashed rgba(42,15,10,.3);padding-bottom:10px;
+  }
+  .mrow{display:flex;align-items:baseline;font-weight:600;font-size:15px;margin:9px 0;gap:10px;}
+  .mrow .dots{flex:1;border-bottom:3px dotted rgba(42,15,10,.35);transform:translateY(-4px);}
+  .mrow .keys{white-space:nowrap;}
+
+  .bigbtn{
+    margin-top:36px;pointer-events:auto;cursor:pointer;
+    font-family:var(--display);font-size:30px;letter-spacing:2px;
+    color:var(--grease);background:var(--mustard);
+    border:5px solid var(--grease-dk);border-radius:16px;
+    padding:18px 46px 12px;box-shadow:0 9px 0 var(--ketchup-dk), 0 18px 30px rgba(0,0,0,.5);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  .bigbtn:hover, .bigbtn.gp-hover{background:var(--cheese);}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
+
+  .sub{position:absolute;bottom:38px;right:20px;margin-top:0;color:rgba(255,243,214,.7);font-size:13px;font-weight:600;letter-spacing:1px;}
+
+  /* level-complete headline — sized to read about twice as long as ORDER UP! */
+  .completesub{
+    margin-top:10px;font-family:var(--display);font-size:clamp(40px,8.2vw,92px);
+    white-space:nowrap;line-height:.95;
+    color:var(--cream);-webkit-text-stroke:.04em var(--grease-dk);paint-order:stroke fill;
+    text-shadow:0 .065em 0 var(--ketchup-dk), 0 .13em .26em rgba(0,0,0,.5);
+    transform:rotate(-1.2deg);letter-spacing:1px;
+  }
+  .completesub span{color:var(--mustard);}
+  /* ORDER UP! headline (id so mobile rules can resize it — was an inline style
+     that overrode every media query) */
+  #orderup{font-size:clamp(48px,9vw,96px);}
+
+  /* high-score banner on the menu */
+  #hiscore{
+    margin-top:18px;display:flex;gap:14px;align-items:stretch;
+  }
+  .scorechip{
+    background:var(--grease-dk);border:4px solid var(--mustard);border-radius:12px;
+    padding:9px 20px 7px;text-align:center;box-shadow:0 5px 0 rgba(0,0,0,.45);
+    transform:rotate(-1deg);
+  }
+  .scorechip:nth-child(2){transform:rotate(1.5deg);}
+  .scorechip small{display:block;font-weight:800;font-size:10px;letter-spacing:2px;color:var(--mustard);}
+  .scorechip b{font-family:var(--display);font-size:30px;line-height:1;color:var(--cream);}
+
+  /* PLAY FROM LEVEL selector chip */
+  .scorechip.levelsel{transform:rotate(1.5deg);}
+  .selctrl{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:2px;}
+  .selctrl b{font-family:var(--display);font-size:30px;line-height:1;color:var(--mustard);min-width:38px;cursor:var(--glove,pointer);}
+  .selarrow{pointer-events:auto;cursor:var(--glove,pointer);background:var(--mustard);color:var(--grease);
+    border:2px solid var(--grease-dk);border-radius:7px;width:26px;height:30px;font-size:14px;font-weight:800;
+    box-shadow:0 3px 0 var(--grease-dk);transition:transform .1s,background .1s;}
+  .selarrow:hover, .selarrow.gp-hover{background:var(--cheese);transform:translateY(-1px) scale(1.1);}
+  .selctrl b.gp-hover{transform:scale(1.18);color:var(--cream);}
+  .selcooked{display:block;margin-top:4px;font-weight:800;font-size:9px;letter-spacing:1px;color:var(--mustard);opacity:.8;}
+  body.pad .selctrl b, body.pad .selarrow{cursor:none;}
+
+  /* best-level chip doubles as a clickable "save slot" that jumps to that level */
+  .scorechip.slot{pointer-events:auto;cursor:pointer;position:relative;
+    transition:transform .12s, box-shadow .12s, background .12s, border-color .12s;}
+  .scorechip.slot:hover, .scorechip.slot:focus-visible, .scorechip.slot.gp-hover{
+    background:var(--ketchup-dk);border-color:var(--cream);outline:none;
+    transform:rotate(-1deg) scale(1.07);box-shadow:0 7px 0 rgba(0,0,0,.5),0 0 0 3px rgba(255,243,214,.25);}
+  .scorechip.slot::after{
+    content:'▶ RESUME';display:block;margin-top:4px;
+    font-family:var(--body);font-weight:800;font-size:9px;letter-spacing:1.5px;color:var(--mustard);}
+  .scorechip.slot:hover::after, .scorechip.slot:focus-visible::after, .scorechip.slot.gp-hover::after{color:var(--cream);}
+
+  /* receipt for level complete */
+  .receipt{
+    position:relative;margin-top:30px;background:#fffdf4;color:#241208;width:min(420px,88vw);
+    padding:26px 30px 30px;font-family:var(--mono);font-size:14px;font-weight:500;
+    box-shadow:0 14px 40px rgba(0,0,0,.6);transform:rotate(-1.2deg);
+  }
+  /* torn zigzag bottom edge — a decorative overlay, so the receipt body always
+     renders even where CSS mask-composite isn't supported */
+  .receipt::after{
+    content:"";position:absolute;left:0;right:0;bottom:-9px;height:10px;
+    background:
+      linear-gradient(-45deg, #fffdf4 50%, transparent 51%) 0 0/14px 10px repeat-x,
+      linear-gradient( 45deg, #fffdf4 50%, transparent 51%) 7px 0/14px 10px repeat-x;
+    filter:drop-shadow(0 5px 6px rgba(0,0,0,.4));
+  }
+  .receipt h4{font-family:var(--mono);text-align:center;font-size:16px;letter-spacing:3px;margin-bottom:4px;}
+  .receipt .rsub{text-align:center;font-size:11px;opacity:.65;margin-bottom:14px;}
+  .receipt .line{display:flex;justify-content:space-between;margin:7px 0;}
+  .receipt .line b{font-weight:700;}
+  .receipt hr{border:none;border-top:2px dashed rgba(0,0,0,.35);margin:12px 0;}
+  .receipt .total{font-size:17px;font-weight:700;}
+  .receipt .stars{text-align:center;margin-top:12px;letter-spacing:6px;color:var(--ketchup);}
+
+  /* pause-menu sensitivity selector */
+  .sensbox{margin:30px 0 6px;text-align:center;}
+  .senslabel{font-family:var(--display);font-size:20px;letter-spacing:2px;color:var(--mustard);
+    text-shadow:0 3px 0 rgba(0,0,0,.5);margin-bottom:12px;}
+  .sensrow{display:flex;gap:5px;justify-content:center;flex-wrap:nowrap;flex:1;}
+  .senspip{
+    pointer-events:auto;cursor:var(--glove,pointer);flex:1 1 0;min-width:0;
+    height:44px;border-radius:9px;border:3px solid var(--grease-dk);
+    background:var(--cream);color:var(--grease);
+    font-family:var(--display);font-size:19px;line-height:44px;text-align:center;
+    box-shadow:0 4px 0 rgba(0,0,0,.4);transition:transform .1s,background .1s,box-shadow .1s;
+  }
+  .senspip:hover, .senspip.gp-hover{transform:translateY(-2px);box-shadow:0 6px 0 rgba(0,0,0,.45);}
+  .senspip.on{background:var(--ketchup);color:var(--cream);border-color:var(--cream);
+    transform:translateY(-3px) scale(1.12);box-shadow:0 6px 0 rgba(0,0,0,.5);}
+  body.pad .senspip{cursor:none;}
+  .senshint{margin-top:14px;color:rgba(255,243,214,.7);font-size:12px;font-weight:600;letter-spacing:1px;}
+
+  /* secondary big button (CHECK PLEASE! / quit) */
+  .bigbtn.alt{background:var(--cream);color:var(--ketchup-dk);box-shadow:0 9px 0 #7a1500, 0 18px 30px rgba(0,0,0,.5);animation:pulse 1.4s ease-in-out infinite;animation-delay:.7s;font-size:24px;}
+  .bigbtn.alt:hover, .bigbtn.alt.gp-hover{background:#fff;color:var(--ketchup);}
+  .pausebtns{display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:26px;}
+  #dead .bigbtn.alt{margin-top:20px;}
+
+  /* pause options panel */
+  .pausepanel{margin-top:20px;background:var(--cream);border:5px solid var(--grease-dk);border-radius:18px;
+    box-shadow:0 10px 0 rgba(0,0,0,.5);padding:18px 24px;width:min(620px,92vw);transform:rotate(.5deg);}
+  .optrow{display:flex;align-items:center;gap:14px;margin:8px 0;}
+  .optlabel{font-family:var(--display);font-size:16px;letter-spacing:1px;color:var(--ketchup);min-width:120px;}
+  .optlabel.focus{color:var(--mustard);text-shadow:0 0 8px rgba(255,198,46,.5);}
+  .seg{display:flex;gap:6px;}
+  .segbtn{pointer-events:auto;font-family:var(--body);font-weight:800;font-size:13px;letter-spacing:1px;
+    background:var(--cream);color:var(--grease);border:3px solid var(--grease-dk);border-radius:9px;
+    padding:7px 14px;box-shadow:0 3px 0 var(--grease-dk);transition:transform .1s,background .1s;}
+  .segbtn:hover, .segbtn.gp-hover{background:var(--mustard);}
+  .segbtn.on{background:var(--ketchup);color:var(--cream);border-color:var(--cream);transform:translateY(-1px);}
+  .ctrlbox{margin-top:12px;border-top:3px dashed rgba(42,15,10,.3);padding-top:10px;}
+  .ctrltitle{font-family:var(--display);font-size:15px;letter-spacing:1px;color:var(--ketchup);text-align:center;margin-bottom:8px;}
+  .ctrltitle span{font-family:var(--body);font-weight:800;font-size:11px;background:var(--mustard);color:var(--grease);border:2px solid var(--grease);border-radius:6px;padding:2px 7px 1px;}
+  .ctrlgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;}
+  .ctrlgrid .mrow{margin:5px 0;font-size:13px;}
+
+  #deadtitle{color:var(--ketchup);-webkit-text-stroke:.04em var(--cream);paint-order:stroke fill;text-shadow:0 .066em 0 #3a0500, 0 .13em .25em rgba(0,0,0,.6);}
+
+  #loadnote{position:fixed;bottom:34px;left:50%;transform:translateX(-50%);color:rgba(255,243,214,.5);font-size:12px;font-weight:600;letter-spacing:2px;z-index:11;}
+
+  /* loading splash */
+  #loadsplash{background:
+    radial-gradient(ellipse at 50% 30%, rgba(255,198,46,.10), transparent 55%),
+    radial-gradient(ellipse at 50% 90%, rgba(214,35,0,.25), transparent 50%),
+    var(--grease);
+    z-index:20;}
+  #loadsplash, #loadsplash *{cursor:auto!important}
+  #loadsplash .title{font-size:clamp(32px,5vw,56px);line-height:1.1;}
+  #loadsplash .dots span{display:inline-block;animation:dotPulse .55s ease-in-out infinite;}
+  #loadsplash .dots span:nth-child(2){animation-delay:.18s}
+  #loadsplash .dots span:nth-child(3){animation-delay:.36s}
+  @keyframes dotPulse{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}}
+  #readybtn{margin-top:30px;}
+
+  /* ===== on-screen touch controls ===== */
+  #touch{position:fixed;inset:0;z-index:140;pointer-events:none;display:none;touch-action:none;}
+  #touch.on{display:block;}
+  .tjoy{position:absolute;width:140px;height:140px;border:5px solid rgba(255,243,214,.4);
+    border-radius:50%;background:rgba(0,0,0,.22);}
+  .tjoy .tnub{position:absolute;left:50%;top:50%;width:62px;height:62px;border-radius:50%;
+    background:rgba(255,243,214,.82);border:3px solid rgba(42,15,10,.5);transform:translate(-50%,-50%);
+    box-shadow:0 3px 8px rgba(0,0,0,.4);}
+  /* left = floating movement joystick: rests faded at the centre of its zone, snaps to
+     your finger on touch, then slides home + fades again when you let go */
+  #tmove{left:150px;bottom:96px;display:block;opacity:.42;
+    transition:transform .25s ease, opacity .25s ease;}
+  #tmove.grabbing{opacity:1;transition:opacity .12s ease;}
+  /* right side = just tap & swipe to aim/fire — only the real crosshair shows (no ring) */
+  .tbtn{position:absolute;pointer-events:auto;width:90px;height:90px;border-radius:50%;
+    border:5px solid var(--grease-dk);background:var(--mustard);color:var(--grease);
+    font-family:var(--display);font-size:16px;box-shadow:0 6px 0 var(--grease-dk);user-select:none;}
+  .tbtn.held{transform:translateY(4px);box-shadow:0 2px 0 var(--grease-dk);background:var(--cheese);}
+  /* both action buttons sit up at the joystick's height so they clear the grease meter */
+  #tjump{right:30px;bottom:121px;}
+  #tslide{right:132px;bottom:121px;background:var(--cream);color:var(--ketchup-dk);}
+  #thint{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);color:rgba(255,243,214,.55);
+    font-size:11px;font-weight:600;letter-spacing:.5px;white-space:nowrap;}
+  @media (orientation:portrait){
+    .tbtn{width:74px;height:74px;font-size:13px;}
+    #tmove{width:112px;height:112px;left:80px;bottom:150px;}
+    #tmove .tnub{width:50px;height:50px;}
+    #tjump{right:20px;bottom:169px;}
+    #tslide{right:104px;bottom:169px;}
+    #mhealth{bottom:170px;}
+    #bossname{font-size:13px;letter-spacing:0.5px;}
+    #bosshpwrap{height:16px;}
+    #thint{font-size:9px;white-space:normal;width:90%;text-align:center;}
+  }
+
+  /* ===== mobile HUD scaling: shrink the whole top row to desktop-size, keep info
+     out of the thumbs (applies on ANY touch device, not just short screens) ===== */
+  body.touch #levelchip{font-size:16px;padding:8px 12px 5px;top:8px;left:8px;}
+  body.touch #levelchip small{font-size:8px;margin-bottom:2px;}
+  body.touch #timer{font-size:18px;padding:5px 14px;top:8px;}
+  body.touch #timernote{font-size:8px;}
+  body.touch #alltime{font-size:10px;padding:7px 11px;top:8px;right:8px;}
+  body.touch #alltime b{font-size:16px;}
+  body.touch #alltime{display:none;}
+  /* mobile health: single peanut × N — between levelchip and timer, top-left */
+  #mhealth{display:none;}
+  body.touch #mhealth{
+    display:flex; align-items:center; gap:4px;
+    position:absolute; bottom:122px; left:50%; transform:translateX(-50%);
+    background:var(--grease-dk); padding:4px 10px; border-radius:10px;
+    border:2px solid rgba(255,198,46,.3);
+  }
+  body.touch #mhealth img{width:24px;height:24px;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5));}
+  body.touch #mhealth b{font-family:var(--display);font-size:18px;color:var(--mustard);line-height:1;}
+  body.touch #mhealth.low img{animation:mhealthPulse 1.2s ease-in-out infinite;}
+  @keyframes mhealthPulse{0%,100%{filter:drop-shadow(0 0 3px rgba(214,35,0,.7)) drop-shadow(0 2px 0 rgba(0,0,0,.5))}50%{filter:drop-shadow(0 0 10px rgba(214,35,0,.95)) drop-shadow(0 2px 0 rgba(0,0,0,.5))}}
+  body.touch #hearts{display:none;}
+  body.touch #hearts img{width:28px;height:28px;}
+  body.touch #kills{top:8px;right:8px;bottom:auto;text-align:right;}
+  body.touch #kills b{font-size:18px;}
+  body.touch #kills small{color:var(--cream);}
+  body.touch #sprintwrap{bottom:42px;width:min(280px,46vw);}
+  body.touch #bossbar{top:92px;width:92vw;}
+  body.touch #bossname{font-size:15px;letter-spacing:1px;}
+  body.touch #bossname::before,body.touch #bossname::after{margin:0 4px;}
+  body.touch #bosshpwrap{height:18px;}
+  /* outline scales with font-size via the .04em stroke set on #toast, so no
+     per-breakpoint px stroke here — keeps the border art style consistent */
+  body.touch #toast{font-size:28px;white-space:normal;text-align:center;width:90vw;}
+  @media (orientation:portrait){ #toast{font-size:24px;} }
+
+  /* pips: wider min-size so 10 fit legibly on narrow portrait screens */
+  body.touch .senspip{min-width:26px;height:36px;line-height:36px;font-size:15px;}
+
+  /* big buttons: shrink for mobile, especially portrait */
+  body.touch .bigbtn{font-size:20px;padding:12px 28px 8px;}
+  body.touch .bigbtn.alt{font-size:16px;}
+  @media (orientation:portrait){
+    .bigbtn{font-size:17px;padding:10px 18px 6px;}
+    .bigbtn.alt{font-size:14px;}
+  }
+
+  /* CHECK PLEASE on touch — tighter to the checker stripe */
+  body.touch #quitbtn, body.touch #deadquitbtn{margin-top:0;}
+  body.touch #resumebtn{margin-top:0;}
+
+  /* mobile level-complete ("ORDER UP!") screen. Scale ORDER UP! down together with
+     LEVEL X COMPLETE so they keep the desktop proportion instead of the headline
+     swamping the screen. Base = safe center (used by landscape): centered when it
+     fits, top-aligned + scroll when it doesn't. overflow-x:hidden stops the
+     vertical scroll from also enabling horizontal scroll (which shoved the stack
+     right and clipped the receipt). Portrait adds padding around the check (below). */
+  body.touch #complete{justify-content:safe center;overflow-x:hidden;overflow-y:auto;padding:40px 12px;}
+  body.touch #orderup{font-size:clamp(34px,7vw,58px);}
+  body.touch .completesub{font-size:clamp(30px,6.4vw,52px);white-space:normal;margin-top:4px;}
+  body.touch .receipt{margin-top:16px;padding:16px 18px 18px;font-size:12px;width:min(360px,90vw);}
+  body.touch .receipt .line{margin:4px 0;}
+  body.touch .receipt hr{margin:7px 0;}
+  body.touch #nextbtn{margin-top:14px;margin-bottom:8px;}
+  @media (orientation:portrait){
+    /* keep the stack centered as a group, just give the "check" (receipt) a bit of
+       padding above (below ORDER UP!) and below (above NEXT LEVEL) so it breathes. */
+    body.touch #complete{padding:40px 12px;}
+    body.touch #orderup{font-size:clamp(30px,8vw,48px);}
+    body.touch .completesub{font-size:clamp(26px,6.6vw,40px);margin-top:4px;}
+    body.touch .receipt{margin-top:28px;padding:12px 14px 14px;font-size:11px;}
+    body.touch .receipt h4{font-size:13px;}
+    body.touch .receipt .rsub{font-size:9px;margin-bottom:8px;}
+    body.touch #nextbtn{margin-top:26px;}
+  }
+  @media (orientation:portrait){
+    body.touch #resume .title{margin-top:32px;font-size:clamp(38px,7vw,56px);}
+    body.touch .pausepanel{padding:8px 10px;margin-top:8px;}
+    body.touch .optrow{margin:3px 0;gap:4px;}
+    body.touch .optlabel{font-size:13px;min-width:90px;}
+    body.touch .pausebtns{margin-top:10px;gap:14px;}
+    body.touch .bigbtn{margin-top:0;}
+    body.touch .bigbtn.alt{margin-top:0;}
+    /* menu: raised title, lower LETS COOK */
+    body.touch .title{margin-top:-6px;}
+    body.touch #startbtn{margin-top:24px;}
+  }
+
+  /* PAUSED title pushed lower so it doesn't clip the top checker stripe */
+  body.touch .optlabel.focus{color:var(--ketchup);text-shadow:none;}
+
+  /* mobile: scale splash text up a touch (outline is .04em so it stays in proportion) */
+  body.touch #loadsplash .title{font-size:clamp(42px,10vw,72px);}
+
+  /* landscape: hide PAUSED and CHECK PLEASE to save space */
+  @media (orientation:landscape){
+    body.touch #resume .title,
+    body.touch #quitbtn,
+    body.touch #deadquitbtn{display:none;}
+    body.touch #levelchip{left:24px;}
+    body.touch #kills{right:24px;}
+    body.touch #mhealth{bottom:6px;right:24px;left:auto;transform:none;}
+    body.touch #tmove{left:40px;}
+    /* short landscape: shrink the order-up stack so NEXT LEVEL fits without
+       needing to scroll */
+    body.touch #complete{padding:20px 12px;}
+    body.touch #orderup{font-size:clamp(26px,4.6vw,44px);}
+    body.touch .completesub{font-size:clamp(22px,4vw,38px);margin-top:2px;}
+    body.touch .receipt{margin-top:10px;padding:10px 16px 12px;font-size:10px;}
+    body.touch .receipt h4{font-size:12px;margin-bottom:2px;}
+    body.touch .receipt .rsub{font-size:8px;margin-bottom:6px;}
+    body.touch .receipt .line{margin:3px 0;} body.touch .receipt hr{margin:5px 0;}
+    body.touch .receipt .stars{margin-top:6px;}
+    body.touch #nextbtn{margin-top:10px;}
+  }
+  @media (max-height:560px){
+    /* shrink the top HUD chrome so rows never collide on short non-touch windows too */
+    #levelchip{font-size:18px;padding:9px 14px 6px;top:10px;left:10px;}
+    #levelchip small{font-size:8px;margin-bottom:2px;}
+    #timer{font-size:20px;padding:6px 16px;top:10px;}
+    #alltime{font-size:11px;padding:8px 12px;top:10px;right:10px;}
+    #alltime b{font-size:18px;}
+    /* compact, non-clipping menus */
+    .screen{overflow-y:auto;}
+    .title{font-size:clamp(30px,7vw,54px);}
+    #orderup{font-size:clamp(30px,7vw,54px);} /* id beats .title, so resize it too */
+    .menupanel{display:none;}            /* controls hint panel — drop it on tiny screens */
+    #hiscore{margin-top:10px;gap:8px;}
+    .scorechip{padding:6px 12px 5px;} .scorechip small{font-size:9px;}
+    .scorechip b,.selctrl b{font-size:22px;}
+    .bigbtn{margin-top:14px;font-size:22px;padding:12px 30px 8px;}
+    .bigbtn.alt{font-size:17px;} .sub{margin-top:8px;font-size:11px;}
+    .completesub{font-size:clamp(26px,6vw,50px);margin-top:6px;}
+    .receipt{margin-top:12px;padding:14px 18px 16px;font-size:12px;width:min(360px,86vw);}
+    .receipt h4{font-size:13px;margin-bottom:2px;} .receipt .rsub{font-size:9px;margin-bottom:8px;}
+    .receipt .line{margin:4px 0;} .receipt hr{margin:7px 0;} .receipt .stars{margin-top:7px;}
+    .pausepanel{margin-top:10px;padding:10px 14px;width:min(620px,94vw);}
+    .optrow{margin:5px 0;gap:8px;} .optlabel{font-size:13px;min-width:84px;}
+    .sensrow{gap:4px;} .senspip{height:34px;line-height:34px;font-size:14px;border-width:2px;}
+    .segbtn{padding:5px 9px;font-size:11px;} .ctrlbox{display:none;}
+    .pausebtns{margin-top:12px;gap:8px;} #loadnote{bottom:14px;}
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="levelchip"><small>LEVEL</small><span id="levelnum">1</span></div>
+  <div id="timer" title="Click to pause"><b id="timertext">0:00.000</b><small id="timernote">TAP TO PAUSE</small></div>
+  <div id="alltime">LEVELS COMPLETED<b id="alltimenum">0</b></div>
+  <div id="hearts"></div>
+  <div id="mhealth"><img src="assets/sprites/emotes/Peanut.png"><b>×3</b></div>
+  <div id="sprintwrap">
+    <div id="sprintlabel">GREASE METER</div>
+    <div id="sprintbar"><div id="sprintfill"></div></div>
+  </div>
+  <div id="kills"><small>VEGGIES&nbsp;BLASTED</small><b id="killnum">0</b></div>
+  <div id="bossbar"><div id="bossname">BOSS</div><div id="bosshpwrap"><div id="bosshp"></div></div></div>
+  <div id="crosshair"></div>
+  <div id="damage"></div>
+  <div id="toast"></div>
+</div>
+
+<div id="menu" class="screen on">
+  <div class="title">PEANUT&nbsp;RUN<span class="alt">BUNGULATE TO THE BURGER</span></div>
+  <div id="hiscore">
+    <div class="scorechip slot" id="bestslot" role="button" tabindex="0" title="Jump to your best level"><small>BEST LEVEL</small><b id="hs-best">1</b></div>
+    <div class="scorechip levelsel">
+      <small>PLAY FROM LEVEL</small>
+      <div class="selctrl">
+        <button class="selarrow" id="seldown" role="button" aria-label="lower level">◄</button>
+        <b id="hs-sel" role="button" tabindex="0" title="Play from this level">1</b>
+        <button class="selarrow" id="selup" role="button" aria-label="higher level">►</button>
+      </div>
+      <span class="selcooked">★ <span id="hs-total">0</span> cooked</span>
+    </div>
+  </div>
+  <div class="menupanel">
+    <h3>★ TODAY'S MENU ★ <span id="inputtag">KEYBOARD &amp; MOUSE</span></h3>
+    <div id="menu-kbm">
+      <div class="mrow"><span>Move / strafe</span><span class="dots"></span><span class="keys"><span class="keycap">W</span><span class="keycap">A</span><span class="keycap">S</span><span class="keycap">D</span></span></div>
+      <div class="mrow"><span>Aim / look</span><span class="dots"></span><span class="keys"><span class="keycap">MOUSE</span></span></div>
+      <div class="mrow"><span>Sprint (drinks the grease meter)</span><span class="dots"></span><span class="keys"><span class="keycap">SHIFT</span></span></div>
+      <div class="mrow"><span>Jump the counters (sips grease)</span><span class="dots"></span><span class="keys"><span class="keycap">SPACE</span></span></div>
+      <div class="mrow"><span>Slide (press) → then crouch (keep holding)</span><span class="dots"></span><span class="keys"><span class="keycap">C</span></span></div>
+      <div class="mrow"><span>Unlimited peanuts at the crosshair</span><span class="dots"></span><span class="keys"><span class="keycap">LMB</span></span></div>
+    </div>
+    <div id="menu-pad" style="display:none">
+      <div class="mrow"><span>Move / strafe</span><span class="dots"></span><span class="keys"><span class="keycap pad">L&nbsp;STICK</span></span></div>
+      <div class="mrow"><span>Aim / look</span><span class="dots"></span><span class="keys"><span class="keycap pad">R&nbsp;STICK</span></span></div>
+      <div class="mrow"><span>Sprint (drinks the grease meter)</span><span class="dots"></span><span class="keys"><span class="keycap pad">LB</span></span></div>
+      <div class="mrow"><span>Jump the counters (sips grease)</span><span class="dots"></span><span class="keys"><span class="keycap pad a">A</span></span></div>
+      <div class="mrow"><span>Slide (press) → then crouch (keep holding)</span><span class="dots"></span><span class="keys"><span class="keycap pad">L3</span></span></div>
+      <div class="mrow"><span>Unlimited peanuts</span><span class="dots"></span><span class="keys"><span class="keycap pad">RT</span></span></div>
+    </div>
+  </div>
+  <button class="bigbtn" id="startbtn">LETS COOK</button>
+  <div class="sub" id="menusub">2026 &bull; akilluminati47</div>
+</div>
+
+<div id="complete" class="screen">
+  <div class="title" id="orderup">ORDER&nbsp;UP!</div>
+  <div class="completesub">LEVEL <span id="c-level">1</span> COMPLETE</div>
+  <div class="receipt">
+    <h4>★ PEANUT RUN ★</h4>
+    <div class="rsub">DRIVE-THRU RECEIPT — NO REFUNDS</div>
+    <div class="line"><span>LEVEL CLEARED</span><b id="r-level">1</b></div>
+    <div class="line"><span>TIME</span><b id="r-time">0:00.000</b></div>
+    <div class="line"><span>VEGGIES BLASTED</span><b id="r-kills">0</b></div>
+    <hr>
+    <div class="line total"><span>LEVELS THIS RUN</span><b id="r-run">1</b></div>
+    <div class="line total"><span>ALL-TIME LEVELS</span><b id="r-alltime">1</b></div>
+    <div class="stars">★ ★ ★ ★ ★</div>
+  </div>
+  <button class="bigbtn" id="nextbtn">NEXT LEVEL&nbsp;&nbsp;⏎</button>
+</div>
+
+<div id="dead" class="screen">
+  <div class="title" id="deadtitle">YOU GOT<br>ROASTED</div>
+  <div class="sub" style="font-size:16px;margin-top:24px">the vegetables won this round</div>
+  <button class="bigbtn" id="retrybtn">RETRY LEVEL&nbsp;&nbsp;⏎</button>
+  <button class="bigbtn alt" id="deadquitbtn">CHECK PLEASE!</button>
+</div>
+
+<div id="resume" class="screen" style="background:rgba(26,8,5,.86)">
+  <div class="title" style="font-size:clamp(34px,6vw,60px)">PAUSED</div>
+  <div class="pausepanel">
+    <div class="optrow">
+      <span class="optlabel">LOOK SENS.</span>
+      <div id="sensrow" class="sensrow"></div>
+    </div>
+    <div class="optrow">
+      <span class="optlabel">SOUND FX</span>
+      <div id="volrow" class="sensrow"></div>
+    </div>
+    <div class="optrow">
+      <span class="optlabel">VIEW MODE</span>
+      <div class="seg" id="viewseg">
+        <button class="segbtn" data-view="windowed">WINDOW</button>
+        <button class="segbtn" data-view="fullscreen">FULL</button>
+      </div>
+    </div>
+    <div class="optrow">
+      <span class="optlabel">CAMERA</span>
+      <div class="seg" id="camseg">
+        <button class="segbtn" data-cam="first">FIRST</button>
+        <button class="segbtn" data-cam="third">THIRD</button>
+      </div>
+    </div>
+    <div class="ctrlbox">
+      <div class="ctrltitle">CONTROLS · <span id="pause-inputtag">KEYBOARD &amp; MOUSE</span></div>
+      <div id="pause-controls" class="ctrlgrid"></div>
+    </div>
+  </div>
+  <div class="pausebtns">
+    <button class="bigbtn" id="resumebtn">BACK TO THE GRIND</button>
+    <button class="bigbtn alt" id="quitbtn">CHECK PLEASE!</button>
+  </div>
+</div>
+
+<div id="loadsplash" class="screen on">
+  <div class="title">GATHERING<br>INGREDIENTS<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+  <button class="bigbtn" id="readybtn" style="display:none">READY!</button>
+</div>
+<div id="glove"></div>
+
+<!-- on-screen touch controls (shown only on touch devices, during play) -->
+<div id="touch">
+  <div id="tmove" class="tjoy"><div class="tnub"></div></div>
+  <button id="tjump" class="tbtn">JUMP</button>
+  <button id="tslide" class="tbtn">SLIDE</button>
+  <div id="thint">L: move (push rim = run) &nbsp;|&nbsp; R: tap &amp; swipe to aim/fire &nbsp;|&nbsp; SLIDE: tap = slide, hold = crouch</div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./libs/three.module.js" } }
+</script>
+<script type="module" src="src/main.js?v=37"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# OS cruft
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# local packaging / build artifacts (Cloudflare Pages deploys from source)
+*.zip
