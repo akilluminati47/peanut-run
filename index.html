@@ -50,12 +50,10 @@
   *{margin:0;padding:0;box-sizing:border-box;
     -webkit-user-select:none;-moz-user-select:none;user-select:none;
     -webkit-tap-highlight-color:transparent;}
-  /* position:fixed pins the page so iOS Safari can't rubber-band / shift it sideways
-     (the "stuck to the left with a black bar on the right" bug); touch-action:none +
-     overscroll-behavior:none kill the browser's own pan/zoom gestures over the game. */
   html,body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;
     background:var(--grease);font-family:var(--body);
-    overscroll-behavior:none;touch-action:none;-webkit-touch-callout:none;}
+    overscroll-behavior:none;touch-action:none;
+    -webkit-text-size-adjust:none;text-size-adjust:none;-webkit-touch-callout:none;}
   canvas#game{display:block;position:fixed;inset:0;width:100%;height:100%;cursor:crosshair;}
 
   /* ============ shared chrome ============ */
@@ -784,6 +782,6 @@
 <script type="importmap">
 { "imports": { "three": "./libs/three.module.js" } }
 </script>
-<script type="module" src="src/main.js?v=51"></script>
+<script type="module" src="src/main.js?v=52"></script>
 </body>
 </html>
