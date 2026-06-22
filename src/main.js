@@ -528,22 +528,24 @@ scene.add(sky);
 const SKY_R = 320;
 // MOON_DIR is declared up by the moonlight so the light and the sky agree
 function randomizeTwinkles() {
+  const RAD = SKY_R - 14;     // FIXED distance — comfortably inside the camera far plane (400)
   for (const tw of twinkles) {
-    let x, y, z, d, dir, k;
+    let x, y, z, d;
     do {
       x = Math.random() * 2 - 1; y = Math.random(); z = Math.random() * 2 - 1;
       d = x * x + y * y + z * z;
     } while (d > 1 || d < 0.05);
-    k = (SKY_R - 14) / Math.sqrt(d);
-    dir = new THREE.Vector3(x, y, z).normalize();
+    const dir = new THREE.Vector3(x, y, z).normalize();
     // retry if within ~25° of the moon
     while (dir.dot(MOON_DIR) > 0.90) {
       do { x = Math.random() * 2 - 1; y = Math.random(); z = Math.random() * 2 - 1; d = x * x + y * y + z * z; }
       while (d > 1 || d < 0.05);
-      k = (SKY_R - 14) / Math.sqrt(d);
       dir.set(x, y, z).normalize();
     }
-    tw.position.set(dir.x * k, Math.abs(dir.y) * k * 0.96, dir.z * k);
+    // place from the NORMALISED direction at a fixed radius. The old code scaled by
+    // k=(SKY_R-14)/√d using the un-normalised length, so a near-zenith pick (tiny √d)
+    // ballooned out past the far plane and the star vanished when you looked straight up.
+    tw.position.set(dir.x * RAD, Math.abs(dir.y) * RAD * 0.96, dir.z * RAD);
     tw.userData.phase = Math.random() * Math.PI * 2;
   }
 }
@@ -665,6 +667,7 @@ const playerGroup = new THREE.Group();
 let playerSprite = null;
 let playerBlob = null;        // ground shadow disc (animated in 3rd person)
 let playerBlobTop = null;     // the slice of that shadow sitting on an obstacle top
+let playerBlobMid = null;     // the slice spilling onto the step below (roof → hood/bed)
 let _bodyCanvas = null;       // cached peanut-shell canvas
 let _faceCanvas = null;       // cached face-overlay canvas
 let _compositeCanvas = null;  // live composite canvas
@@ -761,6 +764,19 @@ function shadowTopBox(x, z, feetY, r, boxes) {
   }
   return best;
 }
+// the step directly BELOW `topBox` under (x,z) — e.g. a car's hood/bed beneath its
+// roof, or a shorter crate beneath the one you hopped onto — so the shadow can
+// cascade top → middle → floor instead of dropping straight past it to the ground.
+function shadowSecondBox(x, z, r, boxes, topBox) {
+  let best = null, bestY = 0.06;
+  for (const b of boxes) {
+    if (b === topBox) continue;
+    if (b.max.y > bestY && b.max.y < topBox.max.y - 0.02 &&
+        x + r > b.min.x && x - r < b.max.x &&
+        z + r > b.min.z && z - r < b.max.z) { best = b; bestY = b.max.y; }
+  }
+  return best;
+}
 
 function buildPlayer() {
   const bodyTex = buildPeanutBodyTex();
@@ -792,6 +808,8 @@ function buildPlayer() {
   playerBlob = blob;
   playerBlobTop = makeTopBlob(blobGeo);
   playerGroup.add(playerBlobTop);
+  playerBlobMid = makeTopBlob(blobGeo);
+  playerGroup.add(playerBlobMid);
   scene.add(playerGroup);
 }
 
@@ -1902,7 +1920,10 @@ function makeEnemy(group, def, x, z, rng) {
     if (!veggieTextures[def.emoji]) veggieTextures[def.emoji] = emojiTexture(def.emoji);
     map = veggieTextures[def.emoji];
   }
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true }));
+  // depthWrite:false so overlapping veggies don't punch transparent-quad holes in each
+  // other — two depth-writing billboards mutually occlude through their see-through
+  // corners, which made veggies vanish the instant they bumped/crowded together.
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
   spr.scale.set(def.scale * 1.3, def.scale * 1.3, 1);
   spr.position.set(x, def.scale * 0.7, z);
   group.add(spr);
@@ -3374,6 +3395,10 @@ function updateCamera(dt, time) {
     // during slides/crouches, and slices onto obstacle tops you climb on/off
     if (playerBlob) {
       const topBox = (level && level.boxes) ? shadowTopBox(p.x, p.z, PLAYER.pos.y, 0.42, level.boxes) : null;
+      // the step directly beneath the one you're on (a car's hood under its roof, the
+      // car body under the cabin, a shorter crate, …) so the slice cascades down it
+      // instead of dropping straight to the floor.
+      const midBox = topBox ? shadowSecondBox(p.x, p.z, 0.42, level.boxes, topBox) : null;
       const surfaceY = topBox ? topBox.max.y : 0;   // surface the shadow falls on
       const hAir = Math.max(0, PLAYER.pos.y - surfaceY);
       let tSc = clamp(1 - hAir * 0.16, 0.5, 1.05);
@@ -3382,15 +3407,17 @@ function updateCamera(dt, time) {
       else if (PLAYER.crouching) { tSc *= 1.15; tOp = 0.48; }
       const ks = clamp(12 * dt, 0, 1);
       // ground layer: always on the floor — shows only the part of the slice that
-      // hangs OFF the obstacle (the footprint is cut out so it can't peek out from
-      // under the box); the top layer draws the part sitting on the box.
+      // hangs OFF every step. The cut-out is the LOWEST step present (a car's body,
+      // with its open wheel gap), so no floor shadow peeks through under it; the top
+      // and middle layers draw the parts sitting on the steps.
+      const floorCut = midBox || topBox;
       playerBlob.position.y = 0.02 - PLAYER.pos.y;
       playerBlob.scale.x = lerp(playerBlob.scale.x, tSc, ks);
       playerBlob.scale.y = lerp(playerBlob.scale.y, tSc, ks);
       playerBlob.material.opacity = lerp(playerBlob.material.opacity, tOp, ks);
-      if (topBox) setOuterClipToBox(playerBlob.material.clippingPlanes, topBox);
+      if (floorCut) setOuterClipToBox(playerBlob.material.clippingPlanes, floorCut);
       else clearOuterClip(playerBlob.material.clippingPlanes);
-      // top layer: the slice sitting on the obstacle, clipped to its footprint
+      // top layer: the slice sitting on the step you're standing on, clipped to its footprint
       if (playerBlobTop) {
         if (topBox) {
           setClipToBox(playerBlobTop.material.clippingPlanes, topBox);
@@ -3400,6 +3427,21 @@ function updateCamera(dt, time) {
           playerBlobTop.visible = true;
         } else {
           playerBlobTop.visible = false;
+        }
+      }
+      // middle layer: the slice that spills off the top step onto the step below it
+      // (roof → hood/bed), clipped to the lower step's footprint. The upper step's
+      // solid body naturally hides the part tucked under it, so no extra outer-clip
+      // is needed against the top footprint.
+      if (playerBlobMid) {
+        if (midBox) {
+          setClipToBox(playerBlobMid.material.clippingPlanes, midBox);
+          playerBlobMid.position.y = midBox.max.y + 0.025 - PLAYER.pos.y;
+          playerBlobMid.scale.copy(playerBlob.scale);
+          playerBlobMid.material.opacity = playerBlob.material.opacity;
+          playerBlobMid.visible = true;
+        } else {
+          playerBlobMid.visible = false;
         }
       }
     }
