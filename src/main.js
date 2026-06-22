@@ -1914,6 +1914,37 @@ function makePickup(group, x, y, z, type) {
   };
 }
 
+// "X marks the spot" paint mark for a boss-drop teabag/dance zone — two white brush
+// strokes that paint themselves on (then breathe) to lure the player over to crouch.
+const xStrokeTex = canvasTexture(64, (ctx, s) => {
+  ctx.clearRect(0, 0, s, s);
+  const cy = s / 2, h = s * 0.4;
+  const grad = ctx.createLinearGradient(0, cy - h / 2, 0, cy + h / 2);  // soft top/bottom edges
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,1)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.strokeStyle = grad; ctx.lineCap = 'round'; ctx.lineWidth = h;
+  ctx.beginPath(); ctx.moveTo(s * 0.12, cy); ctx.lineTo(s * 0.88, cy); ctx.stroke();
+});
+function makeTeabagMark(group, x, z) {
+  const g = new THREE.Group();
+  g.position.set(x, 0.045, z);
+  g.rotation.x = -Math.PI / 2;                        // lay the X flat on the street
+  const LEN = 1.9, THICK = 0.52;
+  const bars = [Math.PI / 4, -Math.PI / 4].map(rot => {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(LEN, THICK),
+      new THREE.MeshBasicMaterial({ map: xStrokeTex, transparent: true, opacity: 0, depthWrite: false }));
+    m.rotation.z = rot;          // orient the stroke to a diagonal of the X
+    m.scale.x = 0.001;           // unpainted — grown along its length by the paint-on anim
+    m.renderOrder = 3;           // sit above the ground shadow discs / ketchup decals
+    g.add(m);
+    return m;
+  });
+  group.add(g);
+  return { group: g, bars, t: 0 };
+}
+
 function makeEnemy(group, def, x, z, rng) {
   let map = def.tex || def.texture;            // bosses may supply a custom texture
   if (!map) {
@@ -2685,9 +2716,16 @@ function updateProjectiles(dt) {
               spawnBurst(new THREE.Vector3(e.pos.x, e.def.scale * 0.7, e.pos.z), '#fff3d6', 40, 5, { life: 1.0 });
               AudioFX.boom(); AudioFX.win();
               rumble(1.0, 0.85, 520);            // big boss-down jolt
-              // drop a diamond peanut (+2 health) right where the boss fell
-              const drop = makePickup(level.group, e.pos.x, 1.2, e.pos.z, 'diamond');
+              // drop a diamond peanut (+2 health) right where the boss fell, then turn
+              // that spot into a "teabag dance" zone: it drops down a bit onto a painted
+              // ground X with a big ground-level crouch zone. It all spawns/works even at
+              // full health (10 peanuts) — the diamond just floats there unclaimed.
+              const drop = makePickup(level.group, e.pos.x, 1.7, e.pos.z, 'diamond');
               drop._isBossDrop = true;
+              drop._teabagR = 3.8;                       // bigger than the 2.5 fry-box pedestals
+              drop._groundTeabag = true;                 // crouch on the street, not up on a step
+              drop.landFrom = 1.7; drop.landTo = 0.95; drop.landT = 0;   // "drops a bit" on landing
+              drop.mark = makeTeabagMark(level.group, e.pos.x, e.pos.z);
               (level.pickups || (level.pickups = [])).push(drop);
               setTimeout(() => AudioFX.bossPing(), 240);   // nice ping after the boom
               // felling a boss permanently grows the grease meter (+15%, cap +150)
@@ -2884,6 +2922,25 @@ function updatePickups(dt, time) {
       pk.frameT = 0; pk.frame = (pk.frame + 1) % pk.frames.length;
       pk.spr.material.map = pk.frames[pk.frame]; pk.spr.material.needsUpdate = true;
     }
+    // boss drops "drop a bit" after the kill; once down, their ground X paints itself
+    // on and the dance zone reads as live. (Plays even at full health.)
+    if (pk.landFrom !== undefined && pk.landT < 0.55) {
+      pk.landT += dt;
+      const u = clamp(pk.landT / 0.55, 0, 1);
+      pk.baseY = pk.landFrom + (pk.landTo - pk.landFrom) * (u * u);     // accelerating fall
+      if (pk.landT >= 0.55)                                             // touchdown puff
+        spawnBurst(new THREE.Vector3(pk.pos.x, 0.1, pk.pos.z), '#fff3d6', 18, 4, { life: 0.5, grav: -4, spread: 1.6 });
+    }
+    if (pk.mark && (pk.landFrom === undefined || pk.landT >= 0.55)) {
+      const m = pk.mark; m.t += dt;
+      const seg = (a, b) => clamp((m.t - a) / (b - a), 0, 1);
+      const e1 = seg(0, 0.3), e2 = seg(0.22, 0.55);                     // two strokes, in sequence
+      const s1 = e1 * e1 * (3 - 2 * e1), s2 = e2 * e2 * (3 - 2 * e2);   // smoothstep paint-on
+      const pulse = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(time * 4.5));   // breathe once painted
+      m.bars[0].scale.x = Math.max(0.001, s1); m.bars[0].material.opacity = s1 * 0.9 * pulse;
+      m.bars[1].scale.x = Math.max(0.001, s2); m.bars[1].material.opacity = s2 * 0.9 * pulse;
+      m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));         // subtle attention bob
+    }
     pk.spr.position.y = pk.baseY + Math.sin(time * 2.6 + pk.bob) * 0.18;
     pk.glow.position.y = pk.spr.position.y;
     // 3D distance — pickups float above the fry-box steps, so you jump to reach them
@@ -2893,6 +2950,7 @@ function updatePickups(dt, time) {
       PLAYER.hp = Math.min(MAX_HP, PLAYER.hp + pk.heal);
       updateHearts();
       pk.alive = false; pk.spr.visible = false; pk.glow.intensity = 0;
+      if (pk.mark) pk.mark.group.visible = false;   // claimed → the dance X goes with it
       const col = pk.type === 'gold' ? '#ffd23b' : '#8fe6ff';
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), col, 34, 6, { life: 0.9 });
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), '#fff3d6', 16, 4, { life: 0.6 });
@@ -2900,6 +2958,14 @@ function updatePickups(dt, time) {
       else { AudioFX.heal(); rumble(0.3, 0.3, 120); toast('+1 HEALTH', 850); }
     }
   }
+}
+
+// is the player inside a pickup's "teabag dance" zone? boss drops use a bigger
+// ground-level zone (crouch on the street); fry-box pedestals need you up on the step.
+function onTeabagSpot(pk) {
+  const r = pk._teabagR || 2.5;
+  const groundOk = pk._groundTeabag || PLAYER.pos.y > 0.5;
+  return groundOk && Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z) < r;
 }
 
 /* ========================================================= player tick */
@@ -2988,7 +3054,7 @@ function updatePlayer(dt) {
     // NUTS-box easter egg: 4 crouches on a health pedestal spawns one bonus pickup per box
     if (!PLAYER._wasCrouching && PLAYER.onGround && level && level.pickups) {
       for (const pk of level.pickups) {
-        if (!pk._bonusSpawned && Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z) < 2.5 && PLAYER.pos.y > 0.5) {
+        if (pk.alive && !pk._bonusSpawned && onTeabagSpot(pk)) {
           PLAYER.crouchCombo++;
           if (PLAYER.crouchCombo >= 4) {
             PLAYER.crouchCombo = 0;
@@ -3010,9 +3076,7 @@ function updatePlayer(dt) {
     if (!PLAYER.sliding && level && level.pickups) {
       let onPedestal = false;
       for (const pk of level.pickups) {
-        if (Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z) < 2.5 && PLAYER.pos.y > 0.5) {
-          onPedestal = true; break;
-        }
+        if (pk.alive && !pk._bonusSpawned && onTeabagSpot(pk)) { onPedestal = true; break; }
       }
       if (!onPedestal) PLAYER.crouchCombo = 0;
     } else {
