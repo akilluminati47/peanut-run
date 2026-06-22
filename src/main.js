@@ -346,6 +346,22 @@ const ketchupTex = canvasTexture(256, (ctx, s) => {
   ctx.beginPath(); ctx.ellipse(s * 0.4, s * 0.4, s * 0.12, s * 0.07, -0.6, 0, Math.PI * 2); ctx.fill();
 });
 
+// purple oil-leak puddle — same blobby shape as the ketchup spill, shaded purple,
+// for purple donks
+const purplePuddleTex = canvasTexture(256, (ctx, s) => {
+  ctx.clearRect(0, 0, s, s);
+  ctx.fillStyle = 'rgba(92,28,138,.92)';
+  ctx.beginPath();
+  for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.25) {
+    const r = s * (0.34 + 0.1 * Math.sin(a * 3.7) + 0.04 * Math.sin(a * 9));
+    const x = s / 2 + Math.cos(a) * r, y = s / 2 + Math.sin(a) * r;
+    a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.fill();
+  ctx.fillStyle = 'rgba(196,128,235,.45)';
+  ctx.beginPath(); ctx.ellipse(s * 0.4, s * 0.4, s * 0.12, s * 0.07, -0.6, 0, Math.PI * 2); ctx.fill();
+});
+
 const parkingTex = canvasTexture(512, (ctx, s) => {
   ctx.fillStyle = '#26282f'; ctx.fillRect(0, 0, s, s);
   for (let i = 0; i < 500; i++) {            // asphalt speckle
@@ -680,6 +696,15 @@ let _lastWipeDir = 0;         // which edge the face wraps off toward
 // box renders ON the box (clipped to its footprint), the part hanging off drops
 // to the floor — so as you walk on/off a crate the circle is sliced at the edge
 // and the slice slides with you.
+// Soft radial falloff so a slice clipped to a small footprint reads as a SHADOW that
+// fades out, not a hard black box/“hitbox” around the peanut.
+const softShadowTex = canvasTexture(64, (ctx, s) => {
+  const c = s / 2, g = ctx.createRadialGradient(c, c, 0, c, c, c);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.82)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+});
 function makeClipPlanes() {
   return [
     new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),    // x >= box.min.x
@@ -746,7 +771,7 @@ function clearOuterClip(planes) {
 }
 function makeTopBlob(geo) {
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: '#000', transparent: true, opacity: 0.34, depthWrite: false,
+    color: '#000', map: softShadowTex, transparent: true, opacity: 0.34, depthWrite: false,
     clippingPlanes: makeClipPlanes(),
   }));
   m.rotation.x = -Math.PI / 2;
@@ -798,7 +823,7 @@ function buildPlayer() {
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', transparent: true, opacity: 0.35, depthWrite: false,
+      color: '#000', map: softShadowTex, transparent: true, opacity: 0.35, depthWrite: false,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     })
   );
@@ -975,6 +1000,7 @@ document.documentElement.style.setProperty('--glove-hover', `url(${GLOVE_HOVER_U
 document.documentElement.style.setProperty('--glove-press', `url(${GLOVE_PRESS_URL}) 22 3, pointer`);
 document.documentElement.style.setProperty('--glove-img', `url(${GLOVE_URL})`);
 const gloveEl = document.getElementById('glove');
+if (gloveEl) gloveEl.style.transition = 'opacity .3s ease';   // smooth idle fade-out/in
 
 let inputMode = 'kbm';   // 'kbm' | 'gamepad' | 'touch'
 let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
@@ -1039,9 +1065,11 @@ function setInputMode(m) {
   refreshControlsUI();
   if (m !== 'kbm') { cursorX = window.innerWidth / 2; cursorY = window.innerHeight / 2; }
 }
-window.addEventListener('mousemove', e => { setInputMode('kbm'); cursorX = e.clientX; cursorY = e.clientY; });
+window.addEventListener('mousemove', e => { setInputMode('kbm'); cursorX = e.clientX; cursorY = e.clientY; _gloveWake = true; });
 window.addEventListener('keydown', () => setInputMode('kbm'));
 let gpHoverEl = null;       // element the (gamepad) glove is currently hovering
+let gloveIdleT = 0;         // seconds since the cursor last moved (fades the glove out)
+let _gloveWake = false;     // a mouse move / swipe this frame — wake & reposition the glove
 
 const MENU_STATES = ['menu', 'complete', 'dead', 'paused'];
 
@@ -1057,24 +1085,25 @@ function padType(id) {
 const gp = {
   connected: false, type: 'xbox', lx: 0, ly: 0, rx: 0, ry: 0,
   lb: false, rt: false, l3: false, aHeld: false,
-  jumpEdge: false, aEdge: false, startEdge: false, decEdge: false, incEdge: false,
+  jumpEdge: false, aEdge: false, bEdge: false, startEdge: false, decEdge: false, incEdge: false,
   upEdge: false, downEdge: false, selectEdge: false,
-  _aPrev: false, _startPrev: false, _lPrev: false, _rPrev: false,
+  _aPrev: false, _bPrev: false, _startPrev: false, _lPrev: false, _rPrev: false,
   _uPrev: false, _dPrev: false, _selPrev: false,
   _l3Prev: false, l3DownT: 0, l3TapEdge: false,
+  _jumpBlock: false,   // swallow the jump that the A-press used to CLOSE the pause menu
 };
 function pollGamepad() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   let g = null;
   for (const p of pads) if (p && p.connected) { g = p; break; }
   gp.connected = !!g;
-  gp.jumpEdge = gp.aEdge = gp.startEdge = gp.decEdge = gp.incEdge = false;
+  gp.jumpEdge = gp.aEdge = gp.bEdge = gp.startEdge = gp.decEdge = gp.incEdge = false;
   if (!g) {
     gp.lx = gp.ly = gp.rx = gp.ry = 0; gp.lb = gp.rt = gp.l3 = gp.aHeld = false;
-    gp._aPrev = gp._startPrev = gp._lPrev = gp._rPrev = gp._l3Prev = false;
+    gp._aPrev = gp._bPrev = gp._startPrev = gp._lPrev = gp._rPrev = gp._l3Prev = false;
     gp._uPrev = gp._dPrev = gp._selPrev = false;
     gp.upEdge = gp.downEdge = gp.selectEdge = false;
-    gp.l3TapEdge = false; return;
+    gp.l3TapEdge = false; gp._jumpBlock = false; return;
   }
   const t = padType(g.id);
   if (t !== gp.type) { gp.type = t; if (inputMode === 'gamepad') refreshControlsUI(); }
@@ -1093,6 +1122,11 @@ function pollGamepad() {
   gp.l3 = l3Now; gp._l3Prev = l3Now;
   gp.aHeld = pressed(0);                       // A held (for cursor press art)
   gp.aEdge = gp.jumpEdge = gp.aHeld && !gp._aPrev; gp._aPrev = gp.aHeld;
+  const bNow = pressed(1);                      // B → back / close pause
+  gp.bEdge = bNow && !gp._bPrev; gp._bPrev = bNow;
+  // swallow the very jump that the A-press used to dismiss the pause menu (the glove
+  // click resumes play this frame; without this the same A also fires a jump)
+  if (gp._jumpBlock) { gp.jumpEdge = false; if (!gp.aHeld) gp._jumpBlock = false; }
   const sNow = pressed(9);                     // Start → pause / confirm
   gp.startEdge = sNow && !gp._startPrev; gp._startPrev = sNow;
   // d-pad ◄/► (14/15) or bumpers (4/5) adjust sliders in menus
@@ -1315,6 +1349,22 @@ function updateMenuCursor(dt) {
   gloveEl.style.left = (cursorX - 22) + 'px';
   gloveEl.style.top = (cursorY - 3) + 'px';
 
+  // glove fade: after 3s of no cursor input, hide the glove so a stale mouse/controller
+  // cursor stops fighting the active one. ANY mouse move / stick push / swipe / press
+  // wakes it (and it reappears wherever the active input now points), so the menu
+  // highlights track whichever input you just touched.
+  const stickMag = Math.abs(gp.lx) + Math.abs(gp.ly) + Math.abs(gp.rx) + Math.abs(gp.ry);
+  const active = _gloveWake || stickMag > 0.05 || touchMenuActive || gp.aHeld || lmb ||
+    gp.aEdge || gp.upEdge || gp.downEdge || gp.decEdge || gp.incEdge || gp.startEdge;
+  _gloveWake = false;
+  gloveIdleT = active ? 0 : gloveIdleT + dt;
+  if (gloveIdleT > 3) {
+    gloveEl.style.opacity = '0';
+    if (gpHoverEl) { gpHoverEl.classList.remove('gp-hover'); gpHoverEl = null; }  // no stale lit button
+    return;
+  }
+  gloveEl.style.opacity = '1';
+
   // hover frame + bob over clickable things; press frame while clicking
   const el = document.elementFromPoint(cursorX, cursorY);
   const overBtn = el && el.closest && el.closest('button, [role=button], .senspip, .selarrow');
@@ -1336,7 +1386,13 @@ function updateMenuCursor(dt) {
   }
 
   if (gp.aEdge || gp.startEdge) {
-    if (gp.aEdge && overBtn) { overBtn.click(); return; }
+    if (gp.aEdge && overBtn) {
+      // the PLAY-FROM-LEVEL arrows fire on pointerdown (bindRepeat), so .click() is a
+      // no-op — step the selector directly when the glove is parked on one
+      const arrow = overBtn.closest('.selarrow');
+      if (arrow) { AudioFX.init(); setSelLevel(selLevel + (arrow.id === 'selup' ? 1 : -1)); return; }
+      overBtn.click(); return;
+    }
     if (state === 'menu') startRun(selLevel);
     else if (state === 'complete') nextLevel();
     else if (state === 'dead') retryLevel();
@@ -1424,6 +1480,8 @@ function resumeFromPause() {
   keys.Space = false; keys.ShiftLeft = false; keys.ShiftRight = false; keys.KeyC = false;
   keys.KeyW = keys.KeyA = keys.KeyS = keys.KeyD = false;
   keys.ArrowUp = keys.ArrowDown = keys.ArrowLeft = keys.ArrowRight = false;
+  // the A that confirmed "resume" must not also become a jump this frame / while held
+  gp.jumpEdge = false; gp._jumpBlock = true;
   lockPointer();
   setState('playing');
 }
@@ -1701,6 +1759,7 @@ function lotMat(w, d) {
 const CAR_COLORS = ['#c0392b', '#2c6fb0', '#27ae60', '#e0902a', '#8e44ad', '#bdc3c7', '#16a085', '#34495e'];
 const CAR_TYPES = ['coupe', 'sedan', 'suv', 'truck'];
 const glassMat = new THREE.MeshLambertMaterial({ color: '#10161f' });
+const windshieldMat = new THREE.MeshLambertMaterial({ color: '#06080d', emissive: '#0b0f17' });  // near-black glass
 const tyreMat = new THREE.MeshLambertMaterial({ color: '#15151a' });
 const lampMat = new THREE.MeshBasicMaterial({ color: '#fff2c0' });
 const tailMat = new THREE.MeshBasicMaterial({ color: '#d62300' });
@@ -1733,7 +1792,7 @@ function buildDonkRim(wheelR) {
 }
 
 // detailed parked car with four body types; rng picks the type
-function buildCar(group, boxes, x, z, col, rng, yaw) {
+function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
   const type = CAR_TYPES[(rng() * CAR_TYPES.length) | 0];
   const g = new THREE.Group();
   g.position.set(x, 0, z);
@@ -1742,18 +1801,22 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
 
   // dimensions per type (length along local z)
   let L = 3.6, W = 1.9, bodyH = 0.62, bodyY = 0.5, cabinL = 1.7, cabinH = 0.6, cabinZ = -0.1, cabinW = 1.62;
-  let wheelR = 0.36, donk = false;
+  let wheelR = 0.36, donk = false, bigTruck = false;
   if (type === 'coupe') {
     L = 3.4; W = 1.86; cabinL = 1.4; cabinZ = -0.25;
     if (rng() < 0.5) L *= 1.25;                 // half of coupes are 25% longer
   } else if (type === 'sedan') {
     L = 3.9; W = 1.92; cabinL = 1.9;
-    if (rng() < 0.1) { donk = true; wheelR = 0.52; bodyY += 0.22; }  // raised 24" donk
+    // donks are gated by the spawn loop to one chosen level per 10-block and never two
+    // on a level — opts.allowDonk is only set for the first eligible sedan that level
+    if (opts.allowDonk) { donk = true; wheelR = 0.54; bodyY += 0.34; }   // raised for the big tyres
   }
   else if (type === 'suv') { L = 3.9; W = 2.0; bodyH = 0.8; bodyY = 0.58; cabinL = 2.1; cabinH = 0.78; cabinW = 1.78; }
   else if (type === 'truck') {
     L = 4.4; W = 2.0; bodyH = 0.7; bodyY = 0.62; cabinL = 1.35; cabinZ = -L / 2 + 1.1; cabinH = 0.8; cabinW = 1.84;
-    if (rng() < 0.5) {                          // half of trucks are 33% larger
+    // big rigs only spawn in the front bays and never two on a level (loop-gated)
+    if (opts.allowBigTruck) {
+      bigTruck = true;
       const k = 1.33;
       L *= k; W *= k; bodyH *= k; bodyY *= k; cabinL *= k; cabinZ *= k; cabinH *= k; cabinW *= k; wheelR *= k;
     }
@@ -1762,20 +1825,33 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, bodyH, L), paint);
   body.position.y = bodyY; body.castShadow = true; body.receiveShadow = true; g.add(body);
 
-  if (type === 'truck') {                                  // open flatbed walls
-    const bedH = 0.42, bedZ = (L / 2 - 1.0) - 0.1;
-    for (const sx of [-1, 1]) {
-      const side = new THREE.Mesh(new THREE.BoxGeometry(0.14, bedH, L - 2.0), paint);
-      side.position.set(sx * (W / 2 - 0.07), bodyY + bodyH / 2 + bedH / 2, bedZ); g.add(side);
-    }
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(W, bedH, 0.14), paint);
-    tail.position.set(0, bodyY + bodyH / 2 + bedH / 2, L / 2 - 0.07); g.add(tail);
-  }
-
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabinW, cabinH, cabinL), paint);
   cabin.position.set(0, bodyY + bodyH / 2 + cabinH / 2, cabinZ); cabin.castShadow = true; g.add(cabin);
+
+  if (type === 'truck') {                                  // open flatbed walls
+    const bedH = 0.42;
+    // run the bed walls from the cabin's back face to the tailgate's front face so
+    // they MEET the cabin and never hang over the back of the truck
+    const cabBackZ = cabinZ + cabinL / 2;
+    const tailZ = L / 2 - 0.07, tailFrontZ = tailZ - 0.07;
+    const bedLen = Math.max(0.2, tailFrontZ - cabBackZ);
+    const bedCenterZ = (cabBackZ + tailFrontZ) / 2;
+    for (const sx of [-1, 1]) {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(0.14, bedH, bedLen), paint);
+      side.position.set(sx * (W / 2 - 0.07), bodyY + bodyH / 2 + bedH / 2, bedCenterZ); g.add(side);
+    }
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(W, bedH, 0.14), paint);
+    tail.position.set(0, bodyY + bodyH / 2 + bedH / 2, tailZ); g.add(tail);
+  }
+
+  // dark side/rear glazing + a near-black raked windshield (steeper on sedans/coupes)
   const glass = new THREE.Mesh(new THREE.BoxGeometry(cabinW + 0.02, cabinH * 0.66, cabinL - 0.34), glassMat);
   glass.position.set(0, bodyY + bodyH / 2 + cabinH * 0.58, cabinZ); g.add(glass);
+  const wsRake = (type === 'sedan' || type === 'coupe') ? 0.55 : 0.3;
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(cabinW * 0.94, cabinH * 0.85, 0.05), windshieldMat);
+  ws.position.set(0, bodyY + bodyH / 2 + cabinH * 0.5, cabinZ - cabinL / 2 + 0.04);
+  ws.rotation.x = wsRake;       // top rakes back over the cabin
+  g.add(ws);
 
   // wheels
   const wheelGeo = new THREE.CylinderGeometry(wheelR, wheelR, 0.26, 12);
@@ -1800,6 +1876,18 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
   }
 
   group.add(g);
+
+  // a purple donk leaks a purple oil puddle on the side nearest the spawn (toward +z,
+  // since the lot sits at negative z and the player starts up near z=0)
+  if (donk && col === '#8e44ad') {
+    const pud = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.0, 3.0),
+      new THREE.MeshBasicMaterial({ map: purplePuddleTex, transparent: true, depthWrite: false }));
+    pud.rotation.x = -Math.PI / 2;
+    pud.position.set(x, 0.016, z + 1.3);
+    group.add(pud);
+  }
+
   // Collision AABBs hug the rendered car (tight tilted-extent bound, tiny margin).
   // Each box also carries an `obb` so the blob shadow clips to the EXACT rotated
   // footprint of the body/cabin — matching the render even on askew or scaled-up
@@ -1822,6 +1910,8 @@ function buildCar(group, boxes, x, z, col, rng, yaw) {
     new THREE.Vector3(ccx + cabHX, bodyTop + cabinH, ccz + cabHZ));
   cabBox.obb = { cx: ccx, cz: ccz, ry, hx: cabinW / 2, hz: cabinL / 2 };
   boxes.push(cabBox);
+
+  return { donk, bigTruck };
 }
 
 const crateMat = new THREE.MeshLambertMaterial({ map: crateTex });
@@ -1896,6 +1986,15 @@ function pickupForLevel(n) {
   return myOffset === diamondOffset ? 'diamond' : 'gold';
 }
 
+// at most ONE donk per 10-level block: picks a single level in each block that may
+// host a (single) donk, so two donks never share a level again
+function donkForLevel(n) {
+  const block = Math.floor((n - 1) / 10);
+  const r = mulberry32(baseSeed + block * 70001 + 909);
+  const chosen = 1 + ((r() * 10) | 0);
+  return ((n - 1) % 10) + 1 === chosen;
+}
+
 // floating, always-camera-facing, animated healing pickup (Doom-style billboard)
 function makePickup(group, x, y, z, type) {
   const gold = type === 'gold';
@@ -1918,26 +2017,22 @@ function makePickup(group, x, y, z, type) {
 // strokes that paint themselves on (then breathe) to lure the player over to crouch.
 const xStrokeTex = canvasTexture(64, (ctx, s) => {
   ctx.clearRect(0, 0, s, s);
-  const cy = s / 2, h = s * 0.4;
-  const grad = ctx.createLinearGradient(0, cy - h / 2, 0, cy + h / 2);  // soft top/bottom edges
-  grad.addColorStop(0, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.5, 'rgba(255,255,255,1)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.strokeStyle = grad; ctx.lineCap = 'round'; ctx.lineWidth = h;
-  ctx.beginPath(); ctx.moveTo(s * 0.12, cy); ctx.lineTo(s * 0.88, cy); ctx.stroke();
+  // crisp THICK solid-white stroke with round caps (a fat paint streak)
+  ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.62;
+  ctx.beginPath(); ctx.moveTo(s * 0.14, s / 2); ctx.lineTo(s * 0.86, s / 2); ctx.stroke();
 });
 function makeTeabagMark(group, x, z) {
   const g = new THREE.Group();
-  g.position.set(x, 0.045, z);
+  g.position.set(x, 0.05, z);
   g.rotation.x = -Math.PI / 2;                        // lay the X flat on the street
-  const LEN = 1.9, THICK = 0.52;
+  const LEN = 2.1, THICK = 0.62;                      // thick white lines
   const bars = [Math.PI / 4, -Math.PI / 4].map(rot => {
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(LEN, THICK),
       new THREE.MeshBasicMaterial({ map: xStrokeTex, transparent: true, opacity: 0, depthWrite: false }));
     m.rotation.z = rot;          // orient the stroke to a diagonal of the X
     m.scale.x = 0.001;           // unpainted — grown along its length by the paint-on anim
-    m.renderOrder = 3;           // sit above the ground shadow discs / ketchup decals
+    m.renderOrder = 4;           // sit above the ground shadow discs / ketchup decals
     g.add(m);
     return m;
   });
@@ -1964,7 +2059,7 @@ function makeEnemy(group, def, x, z, rng) {
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', transparent: true, opacity: 0.34, depthWrite: false,
+      color: '#000', map: softShadowTex, transparent: true, opacity: 0.34, depthWrite: false,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     }));
   blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.03, z);
@@ -2078,11 +2173,14 @@ function generateLevel(n, seedOffset) {
       outline.rotation.x = -Math.PI / 2;
       outline.position.set(bx, 0.02, bz);
       group.add(outline);
-      baySlots.push({ x: bx, z: bz });
+      // front slots = the two bays nearest the player's spawn (largest z); big rigs only park here
+      baySlots.push({ x: bx, z: bz, front: bz >= bayZ1 - bayGap * 2 });
     }
   }
   const usedSlots = new Set();
   const carN = Math.floor(baySlots.length * 0.6);
+  const donkAllowedLevel = donkForLevel(n);   // ≤1 donk per 10-level block, never two on a level
+  let donkUsed = false, bigTruckUsed = false;
   for (let c = 0; c < carN; c++) {
     const avail = baySlots.filter((_, i) => !usedSlots.has(i));
     if (!avail.length) break;
@@ -2091,7 +2189,12 @@ function generateLevel(n, seedOffset) {
     const s = baySlots[si];
     let carYaw = rng() < 0.5 ? 0 : Math.PI;
     if (rng() < 0.2) carYaw += (rng() < 0.5 ? -1 : 1) * (0.12 + rng() * 0.10);
-    buildCar(group, boxes, s.x, s.z, CAR_COLORS[(rng() * CAR_COLORS.length) | 0], rng, carYaw);
+    const info = buildCar(group, boxes, s.x, s.z, CAR_COLORS[(rng() * CAR_COLORS.length) | 0], rng, carYaw, {
+      allowDonk: donkAllowedLevel && !donkUsed,
+      allowBigTruck: s.front && !bigTruckUsed,
+    });
+    if (info.donk) donkUsed = true;
+    if (info.bigTruck) bigTruckUsed = true;
   }
   // parking-lot lampposts — the mid pair casts shadows for the cars, the rest are
   // visual/fill only (point-light shadows are expensive)
@@ -2932,21 +3035,32 @@ function updatePickups(dt, time) {
         spawnBurst(new THREE.Vector3(pk.pos.x, 0.1, pk.pos.z), '#fff3d6', 18, 4, { life: 0.5, grav: -4, spread: 1.6 });
     }
     if (pk.mark && (pk.landFrom === undefined || pk.landT >= 0.55)) {
-      const m = pk.mark; m.t += dt;
-      const seg = (a, b) => clamp((m.t - a) / (b - a), 0, 1);
-      const e1 = seg(0, 0.3), e2 = seg(0.22, 0.55);                     // two strokes, in sequence
-      const s1 = e1 * e1 * (3 - 2 * e1), s2 = e2 * e2 * (3 - 2 * e2);   // smoothstep paint-on
-      const pulse = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(time * 4.5));   // breathe once painted
-      m.bars[0].scale.x = Math.max(0.001, s1); m.bars[0].material.opacity = s1 * 0.9 * pulse;
-      m.bars[1].scale.x = Math.max(0.001, s2); m.bars[1].material.opacity = s2 * 0.9 * pulse;
-      m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));         // subtle attention bob
+      const m = pk.mark;
+      if (m.fadeOut) {
+        // teabag bonus paid out → the X wipes away (we spawned the second peanut)
+        m.fade = Math.max(0, (m.fade === undefined ? 1 : m.fade) - dt * 2.4);
+        m.bars[0].material.opacity = m.bars[0].material.opacity * (1 - clamp(6 * dt, 0, 1));
+        m.bars[1].material.opacity = m.bars[1].material.opacity * (1 - clamp(6 * dt, 0, 1));
+        if (m.fade <= 0) m.group.visible = false;
+      } else {
+        m.t += dt;
+        // paint stroke 1, THEN stroke 2 (clear gap between), each growing along its length
+        const e1 = clamp(m.t / 0.35, 0, 1);
+        const e2 = clamp((m.t - 0.45) / 0.35, 0, 1);
+        const pulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(time * 4.5));  // breathe once painted
+        m.bars[0].scale.x = Math.max(0.001, e1); m.bars[0].material.opacity = e1 * 0.95 * pulse;
+        m.bars[1].scale.x = Math.max(0.001, e2); m.bars[1].material.opacity = e2 * 0.95 * pulse;
+        m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));        // subtle attention bob
+      }
     }
     pk.spr.position.y = pk.baseY + Math.sin(time * 2.6 + pk.bob) * 0.18;
     pk.glow.position.y = pk.spr.position.y;
     // 3D distance — pickups float above the fry-box steps, so you jump to reach them
     const eyeY = PLAYER.pos.y + PLAYER.curHeight * 0.6;
     const d = Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z, eyeY - pk.spr.position.y);
-    if (d < 1.9 && PLAYER.hp < MAX_HP) {
+    // don't heal-grab a pickup while you're crouch-dancing on its spot — otherwise the
+    // boss diamond / NUTS peanut gets snatched before the teabag combo can pay out
+    if (d < 1.9 && PLAYER.hp < MAX_HP && !(PLAYER.crouching && onTeabagSpot(pk))) {
       PLAYER.hp = Math.min(MAX_HP, PLAYER.hp + pk.heal);
       updateHearts();
       pk.alive = false; pk.spr.visible = false; pk.glow.intensity = 0;
@@ -3051,23 +3165,31 @@ function updatePlayer(dt) {
     PLAYER.curHeight = CROUCH_HEIGHT;
     // stand up when the key/stick/button that initiated crouch is released
     if (!keys.KeyC && !gp.l3 && !touch.crouchHold) PLAYER.crouching = false;
-    // NUTS-box easter egg: 4 crouches on a health pedestal spawns one bonus pickup per box
+    // TEABAG / "extra health" BONUS (a.k.a. the teabag dance bonus): crouch-dancing on a
+    // pickup's spot a few times pops out one EXTRA peanut. Fired from exactly one place
+    // (here), once per spot — `_bonusSpawned` latches the source so it can't double-fire.
     if (!PLAYER._wasCrouching && PLAYER.onGround && level && level.pickups) {
       for (const pk of level.pickups) {
         if (pk.alive && !pk._bonusSpawned && onTeabagSpot(pk)) {
           PLAYER.crouchCombo++;
-          if (PLAYER.crouchCombo >= 4) {
+          if (PLAYER.crouchCombo >= 3) {                 // 3 dances pays out (was 4)
             PLAYER.crouchCombo = 0;
-            pk._bonusSpawned = true;
+            pk._bonusSpawned = true;                      // latch this source — never twice
             const isBoss = pk._isBossDrop;
             const bonusType = isBoss ? 'diamond' : 'gold';
-            const bonus = makePickup(level.group, pk.pos.x, pk.baseY, pk.pos.z, bonusType);
-            bonus._bonusSpawned = true;
+            // pop the extra peanut OUT toward the player + a touch higher so it reads as a
+            // distinct new drop instead of stacking invisibly on the original pickup
+            const ox = PLAYER.pos.x - pk.pos.x, oz = PLAYER.pos.z - pk.pos.z;
+            const ol = Math.hypot(ox, oz) || 1;
+            const bx = pk.pos.x + (ox / ol) * 1.5, bz = pk.pos.z + (oz / ol) * 1.5;
+            const bonus = makePickup(level.group, bx, pk.baseY + 0.5, bz, bonusType);
+            bonus._bonusSpawned = true;                   // the bonus itself can't be re-danced
             level.pickups.push(bonus);
+            if (pk.mark) pk.mark.fadeOut = true;          // wipe the X — the dance paid out
             toast(isBoss ? 'DIAMOND DANCE!' : 'NUTTY BONUS!', 1400);
             AudioFX.init(); AudioFX.heal();
           }
-          break; // one pedestal per crouch
+          break; // one spot per crouch
         }
       }
     }
@@ -3544,7 +3666,7 @@ function tick() {
   pollGamepad();
   // gamepad Start pauses during play
   if (state === 'playing' && gp.startEdge) { try { document.exitPointerLock?.(); } catch (_) {} AudioFX.init(); AudioFX.fireBounce(400); setState('paused'); }
-  else if (state === 'paused' && gp.startEdge) resumeFromPause();
+  else if (state === 'paused' && (gp.startEdge || gp.bEdge)) resumeFromPause();   // Start OR B closes the pause menu
   if (gp.selectEdge) setCamView(saveData.cam === 'first' ? 'third' : 'first');
   updateMenuCursor(dt);
 
