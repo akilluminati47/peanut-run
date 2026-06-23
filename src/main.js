@@ -639,7 +639,9 @@ const PLAYER = {
   greaseMax: 115,     // sprint capacity; grows +15 per boss felled, cap 250 (max-grease mode)
   crouching: false,
   _wasCrouching: false,
-  crouchCombo: 0,
+  danceCount: 0,      // teabag crouches landed in the current 4s window
+  danceT: 0,          // seconds since the window's first crouch
+  danceSpot: null,    // the dance spot being teabagged
   calmT: 0,
   rechargeMult: 1,
   fireCD: 0,
@@ -778,12 +780,14 @@ function makeTopBlob(geo) {
   m.visible = false;
   return m;
 }
-// highest obstacle top under (x,z) that an entity with feet at feetY is on/above
-// (only real steps above the floor count, never tall walls/buildings)
+// highest obstacle top under (x,z) that an entity is STANDING ON / landing on — its
+// feet must be near that top (within 0.45 above, to 0.15 below). The lower bound is
+// what stops a high jump from slicing the shadow onto a box far below the feet and
+// flashing a hard black square; way up in the air there's just the floor disc.
 function shadowTopBox(x, z, feetY, r, boxes) {
   let best = null, bestY = 0.06;
   for (const b of boxes) {
-    if (b.max.y > bestY && b.max.y <= feetY + 0.15 &&
+    if (b.max.y > bestY && b.max.y <= feetY + 0.15 && b.max.y >= feetY - 0.45 &&
         x + r > b.min.x && x - r < b.max.x &&
         z + r > b.min.z && z - r < b.max.z) { best = b; bestY = b.max.y; }
   }
@@ -828,12 +832,18 @@ function buildPlayer() {
     })
   );
   blob.rotation.x = -Math.PI / 2;
-  blob.position.y = 0.02;
+  blob.position.y = 0.035;
+  // draw AFTER the ground decals (parking-bay paint y=0.02, ketchup/oil puddles) so the
+  // shadow never sort-flips with those coplanar transparent planes as the camera turns —
+  // that flicker was the disc vanishing / showing the tar shadow as a hard square
+  blob.renderOrder = 2;
   playerGroup.add(blob);
   playerBlob = blob;
   playerBlobTop = makeTopBlob(blobGeo);
+  playerBlobTop.renderOrder = 3;
   playerGroup.add(playerBlobTop);
   playerBlobMid = makeTopBlob(blobGeo);
+  playerBlobMid.renderOrder = 3;
   playerGroup.add(playerBlobMid);
   scene.add(playerGroup);
 }
@@ -1825,8 +1835,14 @@ function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, bodyH, L), paint);
   body.position.y = bodyY; body.castShadow = true; body.receiveShadow = true; g.add(body);
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabinW, cabinH, cabinL), paint);
-  cabin.position.set(0, bodyY + bodyH / 2 + cabinH / 2, cabinZ); cabin.castShadow = true; g.add(cabin);
+  // greenhouse: a solid roof/rear box whose FRONT is taken over by a sloped glass
+  // windshield, so the front of the cabin angles down to the hood instead of a blunt box
+  const bodyTop = bodyY + bodyH / 2;
+  const cabFrontZ = cabinZ - cabinL / 2, cabBackZ = cabinZ + cabinL / 2;
+  const wsRake = (type === 'sedan' || type === 'coupe') ? cabinL * 0.34 : cabinL * 0.2;  // front-slope depth
+  const roofLen = Math.max(0.4, cabinL - wsRake);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabinW, cabinH, roofLen), paint);
+  cabin.position.set(0, bodyTop + cabinH / 2, cabBackZ - roofLen / 2); cabin.castShadow = true; g.add(cabin);
 
   if (type === 'truck') {                                  // open flatbed walls
     const bedH = 0.42;
@@ -1844,14 +1860,17 @@ function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
     tail.position.set(0, bodyY + bodyH / 2 + bedH / 2, tailZ); g.add(tail);
   }
 
-  // dark side/rear glazing + a near-black raked windshield (steeper on sedans/coupes)
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(cabinW + 0.02, cabinH * 0.66, cabinL - 0.34), glassMat);
-  glass.position.set(0, bodyY + bodyH / 2 + cabinH * 0.58, cabinZ); g.add(glass);
-  const wsRake = (type === 'sedan' || type === 'coupe') ? 0.55 : 0.3;
-  const ws = new THREE.Mesh(new THREE.BoxGeometry(cabinW * 0.94, cabinH * 0.85, 0.05), windshieldMat);
-  ws.position.set(0, bodyY + bodyH / 2 + cabinH * 0.5, cabinZ - cabinL / 2 + 0.04);
-  ws.rotation.x = wsRake;       // top rakes back over the cabin
-  g.add(ws);
+  // one continuous dark glasshouse, all the SAME glass: side windows along the roof, a
+  // sloped front windshield from the hood cowl up to the roof front edge, and a flat rear
+  const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(cabinW + 0.02, cabinH * 0.6, roofLen * 0.96), glassMat);
+  sideGlass.position.set(0, bodyTop + cabinH * 0.56, cabBackZ - roofLen / 2); g.add(sideGlass);
+  const wsLen = Math.hypot(cabinH, wsRake);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(cabinW * 0.97, wsLen, 0.05), glassMat);
+  windshield.position.set(0, bodyTop + cabinH / 2, cabFrontZ + wsRake / 2);
+  windshield.rotation.x = Math.atan2(wsRake, cabinH);   // top leans back to meet the roof front
+  g.add(windshield);
+  const rearWin = new THREE.Mesh(new THREE.BoxGeometry(cabinW * 0.97, cabinH * 0.8, 0.05), glassMat);
+  rearWin.position.set(0, bodyTop + cabinH * 0.55, cabBackZ - 0.03); g.add(rearWin);
 
   // wheels
   const wheelGeo = new THREE.CylinderGeometry(wheelR, wheelR, 0.26, 12);
@@ -1896,7 +1915,6 @@ function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
   const ac = Math.abs(Math.cos(ry)), as = Math.abs(Math.sin(ry));
   const bodyHX = W / 2 * ac + L / 2 * as + mx;
   const bodyHZ = W / 2 * as + L / 2 * ac + mx;
-  const bodyTop = bodyY + bodyH / 2;
   const bodyBox = new THREE.Box3(
     new THREE.Vector3(x - bodyHX, 0, z - bodyHZ),
     new THREE.Vector3(x + bodyHX, bodyTop, z + bodyHZ));
@@ -2062,9 +2080,11 @@ function makeEnemy(group, def, x, z, rng) {
       color: '#000', map: softShadowTex, transparent: true, opacity: 0.34, depthWrite: false,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     }));
-  blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.03, z);
+  blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.035, z);
+  blob.renderOrder = 2;                 // over ground decals so it can't sort-flip into a square
   group.add(blob);
   const blobTop = makeTopBlob(blobGeo);
+  blobTop.renderOrder = 3;
   group.add(blobTop);
   return {
     def, spr, blob, blobTop, hp: def.hp, maxHp: def.hp,
@@ -2106,6 +2126,7 @@ function generateLevel(n, seedOffset) {
   const slowZones = [];
   const enemies = [];
   const pickups = [];
+  const danceSpots = [];  // teabag spots: 4 crouches in 4s here pops a bonus health peanut
   const obstacles = [];   // jump counters / slide bars the enraged boss can bust through
 
   const bossLevel = n % 5 === 0;
@@ -2207,231 +2228,270 @@ function generateLevel(n, seedOffset) {
   lotFill.position.set(0, 6, lotZ0 + LOT_LEN * 0.5);
   group.add(lotFill);
 
-  // bridge the lot→corridor width transition with shoulder walls
+  // ======================= TURNING PATH =======================
+  // segments march from the lot exit (0,0) heading +z. From level 6 the path TURNS
+  // (22.5/45/90°), more often the longer the level, but always steered back toward forward
+  // so the run resolves FAR from the start instead of folding back on itself.
   prevHalf = LOT_HALF;
+  let cx = 0, cz = 0, theta = 0;                          // path cursor (segment origin) + heading
+  const toWorld = (lx, lz) => ({                          // segment-local (lateral, forward) → world
+    x: cx + lz * Math.sin(theta) + lx * Math.cos(theta),
+    z: cz + lz * Math.cos(theta) - lx * Math.sin(theta),
+  });
+  // a box rotated to the heading: yawed mesh + collision (AABB bound for the Y/broad phase,
+  // plus a `cobb` so the angled XZ footprint resolves exactly). floors skip the cobb (their
+  // top stays at y=0 under any yaw); walls are flagged so you never stand on / bonk them.
+  function yawBox(lx, y, lz, w_, hh, d, mat, opt = {}) {
+    const p = toWorld(lx, lz);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w_, hh, d), mat);
+    mesh.position.set(p.x, y + hh / 2, p.z); mesh.rotation.y = theta;
+    mesh.castShadow = opt.shadow !== false; mesh.receiveShadow = true; group.add(mesh);
+    if (opt.collide !== false) {
+      const ca = Math.abs(Math.cos(theta)), sa = Math.abs(Math.sin(theta));
+      const hx = (w_ / 2) * ca + (d / 2) * sa, hz = (w_ / 2) * sa + (d / 2) * ca;
+      const box = new THREE.Box3(new THREE.Vector3(p.x - hx, y, p.z - hz), new THREE.Vector3(p.x + hx, y + hh, p.z + hz));
+      if (!opt.floor) { box.cobb = { cx: p.x, cz: p.z, ry: theta, hx: w_ / 2, hz: d / 2 }; if (opt.wall) box.wall = true; }
+      boxes.push(box);
+    }
+    return mesh;
+  }
+  const lampAt = (lx, lz, cast) => { const p = toWorld(lx, lz); placeLamppost(group, boxes, p.x, p.z, cast); };
+
+  // pick which inner boundaries turn, by how much, staying within ~±80° of forward
+  const turnAt = new Map();
+  if (n >= 6) {
+    const turns = clamp(Math.round((segs.length - 7) * 0.5), 1, 6);   // ~2 on L6, more as levels lengthen
+    const idxs = []; for (let i = 2; i < segs.length - 2; i++) idxs.push(i);
+    for (let i = idxs.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [idxs[i], idxs[j]] = [idxs[j], idxs[i]]; }
+    let cum = 0;
+    for (let t = 0; t < turns && t < idxs.length; t++) {
+      const mag = [Math.PI / 8, Math.PI / 4, Math.PI / 2][(rng() * 3) | 0];
+      const dir = cum > 0.01 ? -1 : cum < -0.01 ? 1 : (rng() < 0.5 ? -1 : 1);   // steer back to forward
+      if (Math.abs(cum + dir * mag) > Math.PI * 0.46) continue;
+      cum += dir * mag; turnAt.set(idxs[t], dir * mag);
+    }
+  }
+  // dead-end stubs once we're past the first double-boss tier; up to two in the max-grease endgame
+  let deadEnds = (n > 25 && !bossLevel) ? (maxGrease ? (rng() < 0.5 ? 2 : rng() < 0.7 ? 1 : 0) : (rng() < 0.4 ? 1 : 0)) : 0;
+  const deadEndSegs = new Set();
+  { const pool = []; for (let i = 2; i < segs.length - 2; i++) pool.push(i);
+    for (let i = pool.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    for (let k = 0; k < deadEnds && k < pool.length; k++) deadEndSegs.add(pool[k]); }
+
+  // the one healing NUTS box lives in a chosen mid segment
+  const pkType = pickupForLevel(n);
+  const nutsSeg = pkType ? clamp(2 + ((rng() * Math.max(1, segs.length - 4)) | 0), 1, segs.length - 2) : -1;
+
+  let endCx = 0, endCz = 0, endTheta = 0;                 // path frame at the start of the end plaza
 
   for (let i = 0; i < segs.length; i++) {
     const { len, half } = segs[i];
     const isEnd = i === segs.length - 1;
-    const zMid = z + len / 2;
+
+    // turn the heading at this boundary; drop a fat floor patch so the corner can't open a hole,
+    // then post the new heading's wall ends so the outer wedge the turn opens is sealed off
+    if (turnAt.has(i)) {
+      const seal = Math.max(prevHalf, half) + WALL_T;
+      yawBox(0, -0.5, 0, seal * 2, 0.5, seal * 2, floorMat(seal * 2, seal * 2), { shadow: false, floor: true });
+      theta += turnAt.get(i);
+      const off = Math.max(prevHalf, half) + WALL_T / 2;
+      for (const sd of [-1, 1]) yawBox(sd * off, 0, 0, WALL_T, 4.6 + rng() * 2, WALL_T * 2.4, buildingMat(wallTexes[2], 2), { wall: true });
+    }
+    if (isEnd) { endCx = cx; endCz = cz; endTheta = theta; }
 
     // floor
-    addBox(group, boxes, 0, -0.5, zMid, half * 2, 0.5, len, floorMat(half * 2, len), { shadow: false });
+    yawBox(0, -0.5, len / 2, half * 2, 0.5, len, floorMat(half * 2, len), { shadow: false, floor: true });
 
-    // a streetlight lamppost every other segment (alternating side) — nudge z
-    // to ±30% of the segment length so they stay clear of full-width counter/slide bars
-    if (i > 0 && i % 2 === 0) {
-      const side = (i / 2) % 2 ? 1 : -1;
-      placeLamppost(group, boxes, side * (half - 1.1), zMid - len * 0.3, false);
-    }
+    // streetlight every other segment
+    if (i > 0 && i % 2 === 0) { const side = (i / 2) % 2 ? 1 : -1; lampAt(side * (half - 1.1), len * 0.2, false); }
 
-    // elongated buildings down both sides, chopped into storefronts
+    // a dead-end pocket may branch off one side here — decide now so the storefront wall
+    // can leave a doorway for it
+    let de = null;
+    if (deadEndSegs.has(i)) de = { ds: rng() < 0.5 ? -1 : 1, dW: 3 + rng() * 1.5, dL: 5 + rng() * 4, bz: len * 0.5 };
+
+    // storefront buildings down both sides (these yawed slabs ARE the 22.5/45/90° wall pieces)
     for (const side of [-1, 1]) {
-      let bz = z;
-      while (bz < z + len - 1) {
-        const blen = Math.min(5 + rng() * 9, z + len - bz);
+      let bz = 0;
+      while (bz < len - 1) {
+        let blen = Math.min(5 + rng() * 9, len - bz);
+        if (de && side === de.ds) {
+          const o0 = de.bz - de.dW / 2, o1 = de.bz + de.dW / 2;
+          if (bz < o0 && bz + blen > o0) blen = o0 - bz;          // stop the slab at the doorway
+          else if (bz >= o0 && bz < o1) { bz = o1; continue; }    // skip across the doorway
+        }
+        if (blen < 0.6) { bz += 0.6; continue; }
         const bh = 4 + rng() * 5.5;
-        const mat = buildingMat(wallTexes[(rng() * 3) | 0], blen);
-        addBox(group, boxes, side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, mat);
-        // rooftop emoji sign sometimes
+        yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], blen), { wall: true });
         if (rng() < 0.4) {
           const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
           if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
           const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: decorTextures[em], transparent: true }));
           sign.scale.set(2.6, 2.6, 1);
-          sign.position.set(side * (half + WALL_T / 2), bh + 1.6, bz + blen / 2);
-          group.add(sign);
+          const sp = toWorld(side * (half + WALL_T / 2), bz + blen / 2);
+          sign.position.set(sp.x, bh + 1.6, sp.z); group.add(sign);
         }
         bz += blen;
       }
     }
 
-    // shoulder walls where the corridor width steps. This is a thin slab that
-    // fills the step, deliberately recessed 5cm at each x-end and centered in z
-    // so NONE of its faces sit coplanar with the storefront walls (the old
-    // version reached x = wide+WALL_T, exactly on the building outer face → the
-    // remaining wall z-fighting the user saw).
+    // shoulder wall where the corridor steps width
     if (prevHalf !== null) {
       const wide = Math.max(prevHalf, half), narrow = Math.min(prevHalf, half);
-      const gap = wide - narrow;
-      if (gap > 0.3) {
-        for (const side of [-1, 1]) {
-          addBox(group, boxes,
-            side * (narrow + wide) / 2, 0, z,
-            gap - 0.1, 4.5 + rng() * 3, 0.7,
-            buildingMat(wallTexes[2], gap));
-        }
-        // a little extra floor to cover the seam — raised 4mm so its top never
-        // shares a plane with the segment floors (z-fighting)
-        addBox(group, boxes, 0, -0.496, z, wide * 2, 0.5, 2, floorMat(wide * 2, 2), { shadow: false });
+      if (wide - narrow > 0.3) {
+        for (const side of [-1, 1]) yawBox(side * (narrow + wide) / 2, 0, 0, wide - narrow - 0.1, 4.5 + rng() * 3, 0.7, buildingMat(wallTexes[2], wide - narrow), { wall: true });
+        yawBox(0, -0.496, 0, wide * 2, 0.5, 2, floorMat(wide * 2, 2), { shadow: false, floor: true });
       }
     }
     prevHalf = half;
 
+    // build the dead-end pocket through the doorway (floor bridges from the corridor edge)
+    if (de) {
+      const { ds, dW, dL, bz } = de;
+      const inX = ds * half;                               // corridor floor edge on that side
+      yawBox(inX + ds * (dL / 2), -0.5, bz, dL + 1.0, 0.5, dW, floorMat(dL, dW), { shadow: false, floor: true });
+      yawBox(inX + ds * (dL + WALL_T / 2), 0, bz, WALL_T, 5, dW + WALL_T * 2, buildingMat(wallTexes[1], dW), { wall: true });
+      for (const s2 of [-1, 1]) yawBox(inX + ds * (dL / 2), 0, bz + s2 * (dW / 2 + WALL_T / 2), dL + 1, 5, WALL_T, buildingMat(wallTexes[0], dL), { wall: true });
+      if (rng() < 0.6) yawBox(inX + ds * (dL * 0.7), 0, bz, 1.2, 1.0, 1.2, crateMat);
+    }
+
+    // pick this segment's obstacle (jump bar / slide bar / fry crates) — bars are full-width
+    let obstacleZ = null, cratePick = false;
     if (!isEnd && i > 0) {
       const pick = rng();
       if (pick < 0.3) {
-        // counter to JUMP over (textured fast-food counter)
-        const m = addBox(group, boxes, 0, 0, zMid, half * 2, 1.05, 0.9, counterMatFor(half * 2));
+        const m = yawBox(0, 0, len / 2, half * 2, 1.05, 0.9, counterMatFor(half * 2));
         obstacles.push({ type: 'jump', mesh: m, box: boxes[boxes.length - 1] });
-        if (n <= 5) {                                   // tutorial signs only early on
-          const sign = new THREE.Mesh(
-            new THREE.PlaneGeometry(2.2, 2.2),
-            new THREE.MeshBasicMaterial({ map: jumpSignTex, transparent: true, side: THREE.DoubleSide }));
-          sign.position.set(0, 3.1, zMid - 0.6); sign.rotation.y = Math.PI; group.add(sign);
-        }
+        obstacleZ = len / 2;
+        if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: jumpSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 3.1, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
       } else if (pick < 0.6) {
-        // drive-thru window to SLIDE under: bar from y=1.0 upward
-        const m = addBox(group, boxes, 0, 1.0, zMid, half * 2, 1.6, 0.9, slideBarMatFor(half * 2));
+        const m = yawBox(0, 1.0, len / 2, half * 2, 1.6, 0.9, slideBarMatFor(half * 2));
         obstacles.push({ type: 'slide', mesh: m, box: boxes[boxes.length - 1] });
-        if (n <= 5) {
-          const sign = new THREE.Mesh(
-            new THREE.PlaneGeometry(2.4, 2.4),
-            new THREE.MeshBasicMaterial({ map: slideSignTex, transparent: true, side: THREE.DoubleSide }));
-          // sit 0.95 above the bar top (y=2.6) — same air gap the JUMP sign has over its counter
-          sign.position.set(0, 4.75, zMid - 0.6); sign.rotation.y = Math.PI; group.add(sign);
+        obstacleZ = len / 2;
+        if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ map: slideSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 4.75, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
+      } else { cratePick = true; }
+    }
+
+    // NUTS box for this level (placed before crates so crates can dodge it; clear of any bar)
+    let nutsFoot = null;
+    if (i === nutsSeg && pkType) {
+      let nlz = 2 + rng() * Math.max(0.1, len - 4);
+      if (obstacleZ != null) nlz = nlz < obstacleZ ? Math.min(nlz, obstacleZ - 1.9) : Math.max(nlz, obstacleZ + 1.9);
+      nlz = clamp(nlz, 1.6, len - 1.6);
+      const nlx = (rng() * 2 - 1) * Math.max(0.4, half - 2.2);
+      const np = toWorld(nlx, nlz);
+      const nm = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.2, 1.6), nutsCrateMat);
+      nm.position.set(np.x, 0.6, np.z); nm.rotation.y = theta; nm.castShadow = true; nm.receiveShadow = true; group.add(nm);
+      const ca = Math.abs(Math.cos(theta)), sa = Math.abs(Math.sin(theta));
+      const nb = new THREE.Box3(new THREE.Vector3(np.x - (ca + 0.8 * sa), 0, np.z - (sa + 0.8 * ca)), new THREE.Vector3(np.x + (ca + 0.8 * sa), 1.2, np.z + (sa + 0.8 * ca)));
+      nb.cobb = { cx: np.x, cz: np.z, ry: theta, hx: 1.0, hz: 0.8 }; boxes.push(nb);
+      pickups.push(makePickup(group, np.x, 2.1, np.z, pkType));
+      danceSpots.push({ x: np.x, z: np.z, r: 2.5, ground: false, type: 'gold', used: false });
+      nutsFoot = { lx: nlx, lz: nlz, hw: 1.2 };
+    }
+
+    // fry crates — never overlapping each other / the NUTS box, never under a bar (touching edges ok)
+    if (cratePick) {
+      const placed = [];
+      const count = 2 + ((rng() * 3) | 0);
+      for (let c = 0; c < count; c++) {
+        const cw = 1.1 + rng() * 0.9, hw = cw / 2;
+        let lx = 0, lz = 0, ok = false;
+        for (let tr = 0; tr < 8 && !ok; tr++) {
+          lx = (rng() * 2 - 1) * (half - 1.5); lz = 2 + rng() * (len - 4); ok = true;
+          if (obstacleZ != null && Math.abs(lz - obstacleZ) < 0.45 + hw - 0.05) ok = false;
+          if (ok && nutsFoot && Math.abs(lx - nutsFoot.lx) < hw + nutsFoot.hw - 0.05 && Math.abs(lz - nutsFoot.lz) < hw + nutsFoot.hw - 0.05) ok = false;
+          if (ok) for (const o of placed) if (Math.abs(lx - o.lx) < hw + o.hw - 0.06 && Math.abs(lz - o.lz) < hw + o.hw - 0.06) { ok = false; break; }
         }
-      } else {
-        // scattered fry crates
-        const count = 2 + ((rng() * 3) | 0);
-        for (let c = 0; c < count; c++) {
-          const cw = 1.1 + rng() * 0.9;
-          const mat = rng() < 0.5 ? beefCrateMat : crateMat;
-          addBox(group, boxes,
-            (rng() * 2 - 1) * (half - 1.5), 0, z + 2 + rng() * (len - 4),
-            cw, 0.9 + rng() * 0.8, cw, mat);
-        }
-      }
-      // ketchup spill hazard
-      if (rng() < 0.45) {
-        const r = 1.6 + rng() * 1.4;
-        const px = (rng() * 2 - 1) * (half - r - 0.5);
-        const pz = z + 2 + rng() * (len - 4);
-        const pud = new THREE.Mesh(
-          new THREE.PlaneGeometry(r * 2, r * 2),
-          new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false }));
-        pud.rotation.x = -Math.PI / 2;
-        pud.position.set(px, 0.015, pz);
-        group.add(pud);
-        slowZones.push({ x: px, z: pz, r });
+        if (!ok) continue;
+        yawBox(lx, 0, lz, cw, 0.9 + rng() * 0.8, cw, rng() < 0.5 ? beefCrateMat : crateMat);
+        placed.push({ lx, lz, hw });
       }
     }
 
-    // veggie enemies (none in first seg; plaza stays clear on boss levels so the
-    // boss fight reads cleanly)
+    // ketchup spill hazard
+    if (!isEnd && i > 0 && rng() < 0.45) {
+      const r = 1.6 + rng() * 1.4;
+      const p = toWorld((rng() * 2 - 1) * (half - r - 0.5), 2 + rng() * (len - 4));
+      const pud = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false }));
+      pud.rotation.x = -Math.PI / 2; pud.position.set(p.x, 0.015, p.z); group.add(pud);
+      slowZones.push({ x: p.x, z: p.z, r });
+    }
+
+    // veggie enemies (none in seg 0; plaza stays clear on boss levels)
     if (i > 0 && !(isEnd && bossLevel)) {
       const maxTier = clamp(1 + Math.floor(n / 2), 1, VEGGIES.length);
-      let count = isEnd ? 2 + Math.min(4, Math.floor(n / 2))
-                        : 1 + ((rng() * (1 + n * 0.5)) | 0);
+      let count = isEnd ? 2 + Math.min(4, Math.floor(n / 2)) : 1 + ((rng() * (1 + n * 0.5)) | 0);
       count = Math.min(count, 6);
       for (let e = 0; e < count; e++) {
-        const def = VEGGIES[(rng() * maxTier) | 0];
-        enemies.push(makeEnemy(group, def,
-          (rng() * 2 - 1) * (half - 1.2),
-          z + 2 + rng() * (len - 4), rng));
+        const p = toWorld((rng() * 2 - 1) * (half - 1.2), 2 + rng() * (len - 4));
+        enemies.push(makeEnemy(group, VEGGIES[(rng() * maxTier) | 0], p.x, p.z, rng));
       }
     }
 
-    z += len;
+    // advance the cursor to the end of this segment
+    cx += len * Math.sin(theta); cz += len * Math.cos(theta);
   }
 
-  // end wall behind the burger
-  addBox(group, boxes, 0, 0, z + WALL_T / 2, endPlaza.half * 2 + 8, 7, WALL_T, buildingMat(wallTexes[0], endPlaza.half * 2 + 8));
+  // ===== END PLAZA CONTENT (placed in the end-plaza frame: cursor now at its far end) =====
+  cx = endCx; cz = endCz; theta = endTheta;          // re-anchor toWorld to the plaza start
+  const plazaMid = endPlaza.len / 2;
+  // end wall just past the burger
+  yawBox(0, 0, endPlaza.len + WALL_T / 2, endPlaza.half * 2 + 8, 7, WALL_T, buildingMat(wallTexes[0], endPlaza.half * 2 + 8), { wall: true });
 
-  // ===== THE BUNGUSMAC =====
-  const burgerZ = z - endPlaza.len / 2;
+  const bw = toWorld(0, plazaMid);                   // burger world position
+  const burgerPos = new THREE.Vector3(bw.x, 0, bw.z);
   const burger = new THREE.Sprite(new THREE.SpriteMaterial({ map: burgerFrames[0], transparent: true }));
-  burger.scale.set(5.2, 5.2, 1);
-  burger.position.set(0, 2.7, burgerZ);
-  group.add(burger);
-  const glow = new THREE.PointLight('#ffc62e', 60, 22);
-  glow.position.set(0, 4, burgerZ);
-  group.add(glow);
-  const podium = addBox(group, boxes, 0, 0, burgerZ, 3.4, 0.5, 3.4,
-    new THREE.MeshLambertMaterial({ color: '#ffc62e', emissive: '#7a4a00' }));
+  burger.scale.set(5.2, 5.2, 1); burger.position.set(bw.x, 2.7, bw.z); group.add(burger);
+  const glow = new THREE.PointLight('#ffc62e', 60, 22); glow.position.set(bw.x, 4, bw.z); group.add(glow);
+  const podium = yawBox(0, 0, plazaMid, 3.4, 0.5, 3.4, new THREE.MeshLambertMaterial({ color: '#ffc62e', emissive: '#7a4a00' }), { wall: false });
   podium.receiveShadow = true;
-  // halo ring
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(2.4, 0.1, 10, 48),
-    new THREE.MeshBasicMaterial({ color: '#ffc62e' }));
-  ring.rotation.x = Math.PI / 2;
-  ring.position.set(0, 0.6, burgerZ);
-  group.add(ring);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.1, 10, 48), new THREE.MeshBasicMaterial({ color: '#ffc62e' }));
+  ring.rotation.x = Math.PI / 2; ring.position.set(bw.x, 0.6, bw.z); group.add(ring);
 
-  // ===== BOSS — guards the burger on every 5th level (two at 50+) =====
+  // boss-area positions: lateral lx, dz forward of the burger (negative = toward the player)
+  const bossW = (lx, dz) => toWorld(lx, plazaMid + dz);
+
+  // ===== BOSS — guards the burger on every 5th level (two at 25+) =====
   const bosses = [];
   if (bossLevel) {
     const pickPool = () => BOSS_POOLS[(rng() * BOSS_POOLS.length) | 0];
-    const pickName = (pool, exclude) => {
-      const avail = pool.names.filter(n => n !== exclude);
-      return avail[(rng() * avail.length) | 0];
-    };
+    const pickName = (pool, exclude) => { const avail = pool.names.filter(nm => nm !== exclude); return avail[(rng() * avail.length) | 0]; };
     const spawnSmallVeggies = (pool, count) => {
       if (pool.veggieIdx < 0) return;
       const vd = VEGGIES[pool.veggieIdx];
       for (let i = 0; i < count; i++) {
-        const vx = (rng() * 2 - 1) * 5;
-        const vz = burgerZ - 5 + (rng() * 2 - 1) * 3;
-        const ve = makeEnemy(group, { ...vd, hp: 3 }, vx, vz, rng);
-        enemies.push(ve);
+        const p = bossW((rng() * 2 - 1) * 5, -5 + (rng() * 2 - 1) * 3);
+        enemies.push(makeEnemy(group, { ...vd, hp: 3 }, p.x, p.z, rng));
       }
     };
-
-    const pool1 = pickPool();
-    const name1 = pickName(pool1, null);
-    bosses.push(makeBoss(group, n, 0, burgerZ - 5, rng, pool1, name1));
-
+    const pool1 = pickPool(); const name1 = pickName(pool1, null);
+    const bp1 = bossW(0, -5);
+    bosses.push(makeBoss(group, n, bp1.x, bp1.z, rng, pool1, name1));
     if (doubleBoss) {
-      // try same veggie with different name first, otherwise different pool
       let pool2, name2;
-      if (pool1.names.length > 1) {
-        pool2 = pool1;
-        name2 = pickName(pool1, name1);
-        spawnSmallVeggies(pool1, 3);  // 3 small ones for same-type double
-      } else {
-        // pick a DIFFERENT pool for the second boss
-        const others = BOSS_POOLS.filter(p => p !== pool1);
-        pool2 = others[(rng() * others.length) | 0];
-        name2 = pickName(pool2, null);
-        spawnSmallVeggies(pool1, 2);
-        spawnSmallVeggies(pool2, 2);
-      }
-      bosses.push(makeBoss(group, n, pool1 === pool2 ? 3.2 : -3.2, burgerZ - 5, rng, pool2, name2));
-      // reposition first boss to opposite side
-      const b0x = pool1 === pool2 ? -3.2 : 3.2;
-      bosses[0].pos.set(b0x, 0, burgerZ - 5);
-      bosses[0].home.set(b0x, 0, burgerZ - 5);
-      bosses[0].spr.position.x = b0x;
-      if (bosses[0].blob) bosses[0].blob.position.x = b0x;
-    } else {
-      spawnSmallVeggies(pool1, 2);
-    }
-    bosses.forEach(bz => enemies.push(bz));
-    // scatter 2-4 basic veggies (carrot/tomato/corn) in the boss plaza
+      if (pool1.names.length > 1) { pool2 = pool1; name2 = pickName(pool1, name1); spawnSmallVeggies(pool1, 3); }
+      else { const others = BOSS_POOLS.filter(p => p !== pool1); pool2 = others[(rng() * others.length) | 0]; name2 = pickName(pool2, null); spawnSmallVeggies(pool1, 2); spawnSmallVeggies(pool2, 2); }
+      const bp2 = bossW(pool1 === pool2 ? 3.2 : -3.2, -5);
+      bosses.push(makeBoss(group, n, bp2.x, bp2.z, rng, pool2, name2));
+      const b0 = bossW(pool1 === pool2 ? -3.2 : 3.2, -5);
+      bosses[0].pos.set(b0.x, 0, b0.z); bosses[0].home.set(b0.x, 0, b0.z);
+      bosses[0].spr.position.set(b0.x, bosses[0].spr.position.y, b0.z);
+      if (bosses[0].blob) bosses[0].blob.position.set(b0.x, bosses[0].blob.position.y, b0.z);
+    } else spawnSmallVeggies(pool1, 2);
+    bosses.forEach(b => enemies.push(b));
     const basicN = 2 + ((rng() * 3) | 0);
     for (let i = 0; i < basicN; i++) {
-      const bvd = VEGGIES[(rng() * 3) | 0];   // only indices 0-2 (carrot, tomato, corn)
-      const bx = (rng() * 2 - 1) * (endPlaza.half - 2);
-      const bz = burgerZ - 8 + (rng() * 2 - 1) * 6;
-      enemies.push(makeEnemy(group, bvd, bx, bz, rng));
+      const p = bossW((rng() * 2 - 1) * (endPlaza.half - 2), -8 + (rng() * 2 - 1) * 6);
+      enemies.push(makeEnemy(group, VEGGIES[(rng() * 3) | 0], p.x, p.z, rng));
     }
-  }
-
-  // ===== HEALING PICKUP — one per level on 4 random levels in each 10-block =====
-  const pkType = pickupForLevel(n);   // null | 'gold' | 'diamond'
-  if (pkType) {
-    const pz = z * (0.35 + rng() * 0.4);                  // somewhere mid-level
-    const pxBase = (rng() * 2 - 1) * 2.4;
-    // a single jumpable fry crate with the pickup floating above it
-    addBox(group, boxes, pxBase, 0, pz, 2.0, 1.2, 1.6, nutsCrateMat);
-    pickups.push(makePickup(group, pxBase, 2.1, pz, pkType));
   }
 
   scene.add(group);
   level = {
-    group, boxes, slowZones, enemies, bosses, pickups, obstacles, bossLevel, doubleBoss,
-    burger, burgerPos: new THREE.Vector3(0, 0, burgerZ), ring, glow,
-    endZ: z, frameT: 0, frame: 0, won: false, panT: PAN_DUR, introT: 1.0, lockWarnCD: 0,
+    group, boxes, slowZones, enemies, bosses, pickups, danceSpots, obstacles, bossLevel, doubleBoss,
+    burger, burgerPos, ring, glow,
+    endZ: cz, frameT: 0, frame: 0, won: false, panT: PAN_DUR, introT: 1.0, lockWarnCD: 0,
   };
 
   // reposition the 3 twinkling stars randomly for this level
@@ -2450,7 +2510,7 @@ function generateLevel(n, seedOffset) {
   PLAYER.sprint = greaseMax;                 // start each level topped up to capacity
   PLAYER.sliding = false; PLAYER.curHeight = PLAYER.height;
   PLAYER.crouching = false; PLAYER.calmT = 0; PLAYER.rechargeMult = 1;
-  PLAYER.crouchCombo = 0; PLAYER._wasCrouching = false;
+  PLAYER.danceCount = 0; PLAYER.danceT = 0; PLAYER.danceSpot = null; PLAYER._wasCrouching = false;
   PLAYER.aiming = false;
   kills = 0; levelTime = 0; timerRunning = false;
   mouseDX = 0; mouseDY = 0;
@@ -2475,13 +2535,37 @@ function generateLevel(n, seedOffset) {
 
 /* ========================================================== collisions */
 
-// axis-by-axis AABB resolve for a vertical capsule approximated as a box
+// push a circle (centre pos, radius r) out of an oriented box footprint o={cx,cz,ry,hx,hz}
+function pushOutOBB(pos, r, o) {
+  const c = Math.cos(o.ry), s = Math.sin(o.ry);
+  const dx = pos.x - o.cx, dz = pos.z - o.cz;
+  let lx = dx * c - dz * s, lz = dx * s + dz * c;       // world → box-local
+  if (lx > -o.hx && lx < o.hx && lz > -o.hz && lz < o.hz) {
+    const pXp = o.hx - lx, pXn = lx + o.hx, pZp = o.hz - lz, pZn = lz + o.hz;  // inside → least-pen face
+    const m = Math.min(pXp, pXn, pZp, pZn);
+    if (m === pXp) lx = o.hx + r; else if (m === pXn) lx = -o.hx - r;
+    else if (m === pZp) lz = o.hz + r; else lz = -o.hz - r;
+  } else {
+    const ex = lx - clamp(lx, -o.hx, o.hx), ez = lz - clamp(lz, -o.hz, o.hz);
+    const dist = Math.hypot(ex, ez);
+    if (dist >= r || dist < 1e-6) return;
+    const push = r - dist;
+    lx += (ex / dist) * push; lz += (ez / dist) * push;
+  }
+  pos.x = o.cx + lx * c + lz * s;                       // box-local → world
+  pos.z = o.cz - lx * s + lz * c;
+}
+
+// axis-by-axis AABB resolve for a vertical capsule approximated as a box. Boxes carrying
+// a `cobb` (collision OBB) are angled walls/obstacles — they're skipped by the AABB sweeps
+// and depenetrated in the OBB pass; `wall` boxes are full-height barriers you never stand on.
 function resolveEntity(pos, vel, r, h, dt, boxesArr) {
   let grounded = false;
 
   // X
   pos.x += vel.x * dt;
   for (const b of boxesArr) {
+    if (b.cobb) continue;
     if (pos.x + r > b.min.x && pos.x - r < b.max.x &&
         pos.y + h > b.min.y + 0.02 && pos.y < b.max.y - 0.02 &&
         pos.z + r > b.min.z && pos.z - r < b.max.z) {
@@ -2492,6 +2576,7 @@ function resolveEntity(pos, vel, r, h, dt, boxesArr) {
   // Z
   pos.z += vel.z * dt;
   for (const b of boxesArr) {
+    if (b.cobb) continue;
     if (pos.x + r > b.min.x && pos.x - r < b.max.x &&
         pos.y + h > b.min.y + 0.02 && pos.y < b.max.y - 0.02 &&
         pos.z + r > b.min.z && pos.z - r < b.max.z) {
@@ -2499,9 +2584,14 @@ function resolveEntity(pos, vel, r, h, dt, boxesArr) {
       pos.z += pen1 < pen2 ? pen1 : -pen2;
     }
   }
+  // angled boxes: depenetrate the footprint when the entity is at the box's height
+  for (const b of boxesArr) {
+    if (b.cobb && pos.y + h > b.min.y + 0.02 && pos.y < b.max.y - 0.02) pushOutOBB(pos, r, b.cobb);
+  }
   // Y
   pos.y += vel.y * dt;
   for (const b of boxesArr) {
+    if (b.wall) continue;   // full-height barriers: never stand on / bonk them
     if (pos.x + r > b.min.x && pos.x - r < b.max.x &&
         pos.y + h > b.min.y && pos.y < b.max.y &&
         pos.z + r > b.min.z && pos.z - r < b.max.z) {
@@ -2819,17 +2909,18 @@ function updateProjectiles(dt) {
               spawnBurst(new THREE.Vector3(e.pos.x, e.def.scale * 0.7, e.pos.z), '#fff3d6', 40, 5, { life: 1.0 });
               AudioFX.boom(); AudioFX.win();
               rumble(1.0, 0.85, 520);            // big boss-down jolt
-              // drop a diamond peanut (+2 health) right where the boss fell, then turn
-              // that spot into a "teabag dance" zone: it drops down a bit onto a painted
-              // ground X with a big ground-level crouch zone. It all spawns/works even at
-              // full health (10 peanuts) — the diamond just floats there unclaimed.
+              // drop a diamond peanut (+2 health) right where the boss fell — it drops a
+              // bit onto a painted ground X that marks a teabag dance spot. Dancing the X
+              // (4 crouches in 4s) pops ANOTHER diamond, no matter your health and even
+              // after you've grabbed this one (the spot persists independently).
               const drop = makePickup(level.group, e.pos.x, 1.7, e.pos.z, 'diamond');
               drop._isBossDrop = true;
-              drop._teabagR = 3.8;                       // bigger than the 2.5 fry-box pedestals
-              drop._groundTeabag = true;                 // crouch on the street, not up on a step
               drop.landFrom = 1.7; drop.landTo = 0.95; drop.landT = 0;   // "drops a bit" on landing
-              drop.mark = makeTeabagMark(level.group, e.pos.x, e.pos.z);
               (level.pickups || (level.pickups = [])).push(drop);
+              const xMark = makeTeabagMark(level.group, e.pos.x, e.pos.z);
+              (level.danceSpots || (level.danceSpots = [])).push({
+                x: e.pos.x, z: e.pos.z, r: 3.8, ground: true, type: 'diamond', used: false, mark: xMark, markT: 0,
+              });
               setTimeout(() => AudioFX.bossPing(), 240);   // nice ping after the boom
               // felling a boss permanently grows the grease meter (+15%, cap +150)
               PLAYER.greaseMax = Math.min(250, PLAYER.greaseMax + 15);
@@ -3025,8 +3116,7 @@ function updatePickups(dt, time) {
       pk.frameT = 0; pk.frame = (pk.frame + 1) % pk.frames.length;
       pk.spr.material.map = pk.frames[pk.frame]; pk.spr.material.needsUpdate = true;
     }
-    // boss drops "drop a bit" after the kill; once down, their ground X paints itself
-    // on and the dance zone reads as live. (Plays even at full health.)
+    // boss drops "drop a bit" after the kill (the X dance spot is registered separately)
     if (pk.landFrom !== undefined && pk.landT < 0.55) {
       pk.landT += dt;
       const u = clamp(pk.landT / 0.55, 0, 1);
@@ -3034,37 +3124,15 @@ function updatePickups(dt, time) {
       if (pk.landT >= 0.55)                                             // touchdown puff
         spawnBurst(new THREE.Vector3(pk.pos.x, 0.1, pk.pos.z), '#fff3d6', 18, 4, { life: 0.5, grav: -4, spread: 1.6 });
     }
-    if (pk.mark && (pk.landFrom === undefined || pk.landT >= 0.55)) {
-      const m = pk.mark;
-      if (m.fadeOut) {
-        // teabag bonus paid out → the X wipes away (we spawned the second peanut)
-        m.fade = Math.max(0, (m.fade === undefined ? 1 : m.fade) - dt * 2.4);
-        m.bars[0].material.opacity = m.bars[0].material.opacity * (1 - clamp(6 * dt, 0, 1));
-        m.bars[1].material.opacity = m.bars[1].material.opacity * (1 - clamp(6 * dt, 0, 1));
-        if (m.fade <= 0) m.group.visible = false;
-      } else {
-        m.t += dt;
-        // paint stroke 1, THEN stroke 2 (clear gap between), each growing along its length
-        const e1 = clamp(m.t / 0.35, 0, 1);
-        const e2 = clamp((m.t - 0.45) / 0.35, 0, 1);
-        const pulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(time * 4.5));  // breathe once painted
-        m.bars[0].scale.x = Math.max(0.001, e1); m.bars[0].material.opacity = e1 * 0.95 * pulse;
-        m.bars[1].scale.x = Math.max(0.001, e2); m.bars[1].material.opacity = e2 * 0.95 * pulse;
-        m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));        // subtle attention bob
-      }
-    }
     pk.spr.position.y = pk.baseY + Math.sin(time * 2.6 + pk.bob) * 0.18;
     pk.glow.position.y = pk.spr.position.y;
     // 3D distance — pickups float above the fry-box steps, so you jump to reach them
     const eyeY = PLAYER.pos.y + PLAYER.curHeight * 0.6;
     const d = Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z, eyeY - pk.spr.position.y);
-    // don't heal-grab a pickup while you're crouch-dancing on its spot — otherwise the
-    // boss diamond / NUTS peanut gets snatched before the teabag combo can pay out
-    if (d < 1.9 && PLAYER.hp < MAX_HP && !(PLAYER.crouching && onTeabagSpot(pk))) {
+    if (d < 1.9 && PLAYER.hp < MAX_HP) {
       PLAYER.hp = Math.min(MAX_HP, PLAYER.hp + pk.heal);
       updateHearts();
       pk.alive = false; pk.spr.visible = false; pk.glow.intensity = 0;
-      if (pk.mark) pk.mark.group.visible = false;   // claimed → the dance X goes with it
       const col = pk.type === 'gold' ? '#ffd23b' : '#8fe6ff';
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), col, 34, 6, { life: 0.9 });
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), '#fff3d6', 16, 4, { life: 0.6 });
@@ -3072,14 +3140,39 @@ function updatePickups(dt, time) {
       else { AudioFX.heal(); rumble(0.3, 0.3, 120); toast('+1 HEALTH', 850); }
     }
   }
+
+  // teabag dance-spot X marks: paint on (stroke 1 then stroke 2), breathe, then wipe
+  // away once the spot's been danced. These persist independently of the pickup, so the
+  // X stays put on the death spot even after you grab the diamond.
+  for (const ds of level.danceSpots || []) {
+    const m = ds.mark; if (!m) continue;
+    ds.markT = (ds.markT || 0) + dt;
+    if (ds.used) {
+      m.fade = Math.max(0, (m.fade === undefined ? 1 : m.fade) - dt * 2.4);
+      m.bars[0].material.opacity *= (1 - clamp(6 * dt, 0, 1));
+      m.bars[1].material.opacity *= (1 - clamp(6 * dt, 0, 1));
+      if (m.fade <= 0) m.group.visible = false;
+    } else {
+      const t = Math.max(0, ds.markT - 0.5);                         // small delay: diamond lands first
+      const e1 = clamp(t / 0.35, 0, 1), e2 = clamp((t - 0.45) / 0.35, 0, 1);
+      const pulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(time * 4.5));
+      m.bars[0].scale.x = Math.max(0.001, e1); m.bars[0].material.opacity = e1 * 0.95 * pulse;
+      m.bars[1].scale.x = Math.max(0.001, e2); m.bars[1].material.opacity = e2 * 0.95 * pulse;
+      m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));
+    }
+  }
 }
 
-// is the player inside a pickup's "teabag dance" zone? boss drops use a bigger
-// ground-level zone (crouch on the street); fry-box pedestals need you up on the step.
-function onTeabagSpot(pk) {
-  const r = pk._teabagR || 2.5;
-  const groundOk = pk._groundTeabag || PLAYER.pos.y > 0.5;
-  return groundOk && Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z) < r;
+// the nearest un-danced teabag spot the player is currently standing in (ground spots
+// work at street level; crate spots need you up on the crate)
+function activeDanceSpot() {
+  if (!level || !level.danceSpots) return null;
+  for (const ds of level.danceSpots) {
+    if (ds.used) continue;
+    const groundOk = ds.ground || PLAYER.pos.y > 0.5;
+    if (groundOk && Math.hypot(PLAYER.pos.x - ds.x, PLAYER.pos.z - ds.z) < ds.r) return ds;
+  }
+  return null;
 }
 
 /* ========================================================= player tick */
@@ -3165,45 +3258,31 @@ function updatePlayer(dt) {
     PLAYER.curHeight = CROUCH_HEIGHT;
     // stand up when the key/stick/button that initiated crouch is released
     if (!keys.KeyC && !gp.l3 && !touch.crouchHold) PLAYER.crouching = false;
-    // TEABAG / "extra health" BONUS (a.k.a. the teabag dance bonus): crouch-dancing on a
-    // pickup's spot a few times pops out one EXTRA peanut. Fired from exactly one place
-    // (here), once per spot — `_bonusSpawned` latches the source so it can't double-fire.
-    if (!PLAYER._wasCrouching && PLAYER.onGround && level && level.pickups) {
-      for (const pk of level.pickups) {
-        if (pk.alive && !pk._bonusSpawned && onTeabagSpot(pk)) {
-          PLAYER.crouchCombo++;
-          if (PLAYER.crouchCombo >= 3) {                 // 3 dances pays out (was 4)
-            PLAYER.crouchCombo = 0;
-            pk._bonusSpawned = true;                      // latch this source — never twice
-            const isBoss = pk._isBossDrop;
-            const bonusType = isBoss ? 'diamond' : 'gold';
-            // pop the extra peanut OUT toward the player + a touch higher so it reads as a
-            // distinct new drop instead of stacking invisibly on the original pickup
-            const ox = PLAYER.pos.x - pk.pos.x, oz = PLAYER.pos.z - pk.pos.z;
-            const ol = Math.hypot(ox, oz) || 1;
-            const bx = pk.pos.x + (ox / ol) * 1.5, bz = pk.pos.z + (oz / ol) * 1.5;
-            const bonus = makePickup(level.group, bx, pk.baseY + 0.5, bz, bonusType);
-            bonus._bonusSpawned = true;                   // the bonus itself can't be re-danced
-            level.pickups.push(bonus);
-            if (pk.mark) pk.mark.fadeOut = true;          // wipe the X — the dance paid out
-            toast(isBoss ? 'DIAMOND DANCE!' : 'NUTTY BONUS!', 1400);
-            AudioFX.init(); AudioFX.heal();
-          }
-          break; // one spot per crouch
+    // TEABAG DANCE → bonus HEALTH peanut: 4 crouches within 4s while standing in a dance
+    // spot's radius pops out an extra health peanut (gold off a NUTS box, diamond off a
+    // boss X). Works at ANY health and even after the original pickup's been grabbed —
+    // the spot persists. Fired from exactly one place; `used` latches it (never twice).
+    if (!PLAYER._wasCrouching && PLAYER.onGround) {
+      const spot = activeDanceSpot();
+      if (spot) {
+        if (PLAYER.danceSpot !== spot) { PLAYER.danceSpot = spot; PLAYER.danceCount = 0; PLAYER.danceT = 0; }
+        PLAYER.danceCount++;
+        if (PLAYER.danceCount >= 4) {                   // 4 crouches in the 4s window
+          spot.used = true;
+          PLAYER.danceCount = 0; PLAYER.danceSpot = null;
+          // pop the bonus peanut OUT toward the player + a touch higher so it reads as a
+          // distinct new drop, then float-grab it to actually gain the health
+          const ox = PLAYER.pos.x - spot.x, oz = PLAYER.pos.z - spot.z;
+          const ol = Math.hypot(ox, oz) || 1;
+          const bx = spot.x + (ox / ol) * 1.6, bz = spot.z + (oz / ol) * 1.6;
+          const by = (spot.ground ? 1.1 : 2.4);
+          level.pickups.push(makePickup(level.group, bx, by, bz, spot.type));
+          toast(spot.type === 'diamond' ? 'DIAMOND DANCE!' : 'NUTTY BONUS!', 1400);
+          AudioFX.init(); AudioFX.heal();
         }
       }
     }
   } else {
-    // reset NUTS-box combo when not crouching and not on a pedestal
-    if (!PLAYER.sliding && level && level.pickups) {
-      let onPedestal = false;
-      for (const pk of level.pickups) {
-        if (pk.alive && !pk._bonusSpawned && onTeabagSpot(pk)) { onPedestal = true; break; }
-      }
-      if (!onPedestal) PLAYER.crouchCombo = 0;
-    } else {
-      PLAYER.crouchCombo = 0;
-    }
     if (!PLAYER.sliding) {
       // only stand up if there's headroom
       let blocked = false;
@@ -3216,6 +3295,14 @@ function updatePlayer(dt) {
     }
   }
   PLAYER._wasCrouching = PLAYER.crouching;
+
+  // teabag window: 4s from the first crouch on a spot; expiring or leaving it resets
+  if (PLAYER.danceSpot) {
+    PLAYER.danceT += dt;
+    if (PLAYER.danceT > 4 || activeDanceSpot() !== PLAYER.danceSpot) {
+      PLAYER.danceSpot = null; PLAYER.danceCount = 0;
+    }
+  }
 
   // boost drains; sliding freezes; max health (10 peanuts) = unlimited hot grease
   const maxHealth = PLAYER.hp >= MAX_HP;
@@ -3588,7 +3675,7 @@ function updateCamera(dt, time) {
       const surfaceY = topBox ? topBox.max.y : 0;   // surface the shadow falls on
       const hAir = Math.max(0, PLAYER.pos.y - surfaceY);
       let tSc = clamp(1 - hAir * 0.16, 0.5, 1.05);
-      let tOp = clamp(0.42 - hAir * 0.06, 0.12, 0.46);
+      let tOp = clamp(0.42 - hAir * 0.06, 0.18, 0.46);   // keep a faint disc even at jump apex
       if (PLAYER.sliding) { tSc *= 1.35; tOp = 0.52; }
       else if (PLAYER.crouching) { tSc *= 1.15; tOp = 0.48; }
       const ks = clamp(12 * dt, 0, 1);
@@ -3597,7 +3684,7 @@ function updateCamera(dt, time) {
       // with its open wheel gap), so no floor shadow peeks through under it; the top
       // and middle layers draw the parts sitting on the steps.
       const floorCut = midBox || topBox;
-      playerBlob.position.y = 0.02 - PLAYER.pos.y;
+      playerBlob.position.y = 0.035 - PLAYER.pos.y;
       playerBlob.scale.x = lerp(playerBlob.scale.x, tSc, ks);
       playerBlob.scale.y = lerp(playerBlob.scale.y, tSc, ks);
       playerBlob.material.opacity = lerp(playerBlob.material.opacity, tOp, ks);
