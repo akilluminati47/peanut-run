@@ -179,6 +179,32 @@ function buildingTexture(base, trim) {
   return { map: canvasTexture(512, ctx => paint(ctx, false), true), emissive };
 }
 
+// ONE-window-wide facade for the narrowest wall faces (end-caps, tiny transition pieces)
+// so they show a single clean window instead of a whole tile crushed into a sliver.
+function buildingTextureNarrow(base, trim) {
+  const lit = [Math.random() < 0.8, Math.random() < 0.8, Math.random() < 0.8];
+  function paint(ctx, emissive) {
+    ctx.scale(2, 2); const s = 256;
+    const aw = s * 0.16;
+    if (emissive) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, s, s); }
+    else {
+      ctx.fillStyle = base; ctx.fillRect(0, 0, s, s);
+      for (let x = 0; x < s; x += 32) { ctx.fillStyle = (x / 32) % 2 ? '#fff3d6' : trim; ctx.fillRect(x, 0, 32, aw); }
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, aw, s, 6);
+    }
+    const ww = 120, wx = (s - ww) / 2;                // one centered window column, 3 rows
+    for (let y = 0; y < 3; y++) {
+      const on = lit[y];
+      ctx.fillStyle = emissive ? (on ? '#fff3c0' : '#000') : (on ? '#ffd96b' : '#3a2218');
+      ctx.fillRect(wx, aw + 22 + y * 64, ww, 42);
+      if (!emissive) { ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 4; ctx.strokeRect(wx, aw + 22 + y * 64, ww, 42); }
+    }
+  }
+  const emissive = canvasTexture(512, ctx => paint(ctx, true), true);
+  emissive.generateMipmaps = false; emissive.minFilter = THREE.LinearFilter;
+  return { map: canvasTexture(512, ctx => paint(ctx, false), true), emissive };
+}
+
 function signTexture(text, bg, fg) {
   return canvasTexture(512, (ctx, s) => {
     ctx.fillStyle = bg; ctx.fillRect(0, 0, s, s);
@@ -665,6 +691,8 @@ let faceParts = null;       // real photo cut-outs pasted on the head: {eyeL,eye
 let burgerFrames = [];
 let goldTex = null, diamondTex = null;     // first-frame fallbacks
 let goldFrames = [], diamondFrames = [];   // animated healing pickups
+let ammoSets = null;                        // { '10k':[frames], '50k':…, '100k':… } tinted ammo
+let ammoFrames = null;                      // active ammo frame set (null ⇒ default peanutTex)
 
 async function loadAssets() {
   peanutTex = await loadTex('assets/sprites/emotes/Peanut.png');
@@ -677,6 +705,19 @@ async function loadAssets() {
   goldFrames = await Promise.all(fids.map(id => loadTex(`assets/sprites/frames/GoldenPeanut/frame_${id}.png`)));
   diamondFrames = await Promise.all(fids.map(id => loadTex(`assets/sprites/frames/DiamondPeanut/frame_${id}.png`)));
   goldTex = goldFrames[0]; diamondTex = diamondFrames[0];
+
+  // animated AMMO sets (debug cheats): the three K-emote stills are used ONLY as a colour
+  // reference — `dominantColor` pulls each one's hue, then every gold-peanut frame is recoloured
+  // to it (default peanut + that frame's moving shine via compositeAmmoFrame). No GIF/frame
+  // extraction: the animation comes for free from the gold shine.
+  const ammoStill = dir => loadTex(`assets/sprites/frames/${dir}/frame_000.png`);
+  const buildAmmo = tint => goldFrames.map(fr => compositeAmmoFrame(peanutTex.image, tint, extractSparkle(fr).image));
+  const [k10, k50, k100] = await Promise.all([ammoStill('10KPeanut'), ammoStill('50KPeanut'), ammoStill('100KPeanut')]);
+  ammoSets = {
+    '10k':  buildAmmo(dominantColor(k10)),
+    '50k':  buildAmmo(dominantColor(k50)),
+    '100k': buildAmmo(dominantColor(k100)),
+  };
   const ids = [];
   for (let i = 0; i <= 110; i += 10) ids.push(String(i).padStart(3, '0'));
   burgerFrames = await Promise.all(ids.map(id =>
@@ -841,7 +882,7 @@ function clearOuterClip(planes) {
 }
 function makeTopBlob(geo) {
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false,
+    color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false, alphaTest: 0.05,
     clippingPlanes: makeClipPlanes(),
   }));
   m.rotation.x = -Math.PI / 2;
@@ -889,29 +930,29 @@ function buildPlayer() {
   playerSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: _compositeTex, transparent: true }));
   playerSprite.scale.set(1.3, 1.62, 1);
   playerSprite.position.y = 0.88;
+  playerSprite.renderOrder = 2;          // body draws over its shadow disc
   playerGroup.add(playerSprite);
   updatePlayerFaceComposite(1);  // initial: face fully on
   const blobGeo = new THREE.CircleGeometry(0.42, 20);
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', map: shadowTex, transparent: true, opacity: 0.35, depthWrite: false,
+      color: '#000', map: shadowTex, transparent: true, opacity: 0.35, depthWrite: false, alphaTest: 0.05,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     })
   );
   blob.rotation.x = -Math.PI / 2;
   blob.position.y = 0.035;
-  // draw AFTER the ground decals (parking-bay paint y=0.02, ketchup/oil puddles) so the
-  // shadow never sort-flips with those coplanar transparent planes as the camera turns —
-  // that flicker was the disc vanishing / showing the tar shadow as a hard square
-  blob.renderOrder = 2;
+  // LAYER 1: shadows sit above the ground paint (layer 0) but below the world sprites
+  // (layer 2), so a shadow never draws over another body and never sort-flips into a box.
+  blob.renderOrder = 1;
   playerGroup.add(blob);
   playerBlob = blob;
   playerBlobTop = makeTopBlob(blobGeo);
-  playerBlobTop.renderOrder = 3;
+  playerBlobTop.renderOrder = 1;
   playerGroup.add(playerBlobTop);
   playerBlobMid = makeTopBlob(blobGeo);
-  playerBlobMid.renderOrder = 3;
+  playerBlobMid.renderOrder = 1;
   playerGroup.add(playerBlobMid);
   scene.add(playerGroup);
 }
@@ -957,7 +998,57 @@ for (const ev of ['pointerdown', 'mousedown', 'keydown', 'touchstart']) {
   window.addEventListener(ev, () => AudioFX.init(), { capture: true });
 }
 // every menu button (mouse, touch synth-click, or gamepad) sets off a random firework
+/* ----- hidden '/' developer terminal ------------------------------------- */
+let debugOpen = false, debugInput = '', debugEcho = '';
+function _escDbg(s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function renderDebug() {
+  const el = document.getElementById('debugterm'); if (!el) return;
+  el.innerHTML =
+    '>:/Peanut Run Debug Menu\n' +
+    '<span class="dim">load   ·   ammo10k  ammo50k  ammo100k   ·   level&lt;1-99&gt;</span>\n' +
+    '>:/' + _escDbg(debugInput) + '<span class="cur">▋</span>' +
+    (debugEcho ? '\n<span class="dim">' + _escDbg(debugEcho) + '</span>' : '');
+}
+function setDebugOpen(open) {
+  debugOpen = open;
+  document.body.classList.toggle('debug-on', open);
+  if (open) { debugInput = ''; debugEcho = ''; renderDebug(); }
+}
+function execDebug(raw) {
+  const cmd = raw.trim().replace(/^\//, '').toLowerCase();
+  debugInput = '';
+  if (!cmd) { renderDebug(); return; }
+  if (cmd === 'load') {
+    if (level) generateLevel(levelIndex, levelIndex);   // re-anchor the current level (no toast)
+    debugEcho = 'Level Regenerated!';
+  } else if (cmd === 'ammo10k' || cmd === 'ammo50k' || cmd === 'ammo100k') {
+    const key = cmd.slice(4);                            // '10k' | '50k' | '100k' — re-typing toggles off
+    if (ammoSets && ammoFrames !== ammoSets[key]) {
+      ammoFrames = ammoSets[key];
+      debugEcho = key === '10k' ? 'Cyan Peanut Shot!' : key === '50k' ? 'Purple Peanut Shot!' : 'Red Peanut Shot!';
+    } else { ammoFrames = null; debugEcho = 'Default Peanut Shot!'; }
+  } else {
+    const m = cmd.match(/^level(\d+)$/);
+    if (m && +m[1] >= 100) debugEcho = 'error: Run Your Peanut!';
+    else if (m && +m[1] >= 1) { setDebugOpen(false); skipToLevel(+m[1]); return; }
+    else debugEcho = 'unknown command';
+  }
+  renderDebug();
+}
+
 document.addEventListener('keydown', e => {
+  // hidden debug terminal: '/' toggles it (in play or on the menu); while open it eats every key
+  if (e.key === '/' && !debugOpen && (state === 'playing' || state === 'menu')) {
+    e.preventDefault(); setDebugOpen(true); return;
+  }
+  if (debugOpen) {
+    e.preventDefault();
+    if (e.key === '/' || e.key === 'Escape') setDebugOpen(false);
+    else if (e.key === 'Enter') execDebug(debugInput);
+    else if (e.key === 'Backspace') { debugInput = debugInput.slice(0, -1); renderDebug(); }
+    else if (e.key.length === 1) { debugInput += e.key; renderDebug(); }
+    return;
+  }
   keys[e.code] = true;
   if (e.code === 'KeyC') {
     cDownTime = performance.now() / 1000;   // track press time
@@ -1797,30 +1888,37 @@ let level = null;       // { group, boxes, slowZones, enemies, burger, endZ, spa
 let projectiles = [];
 let camInit = false;    // snap the camera into place on the first frame of a level
 
-const wallTexes = [
-  buildingTexture('#b5371d', '#d62300'),
-  buildingTexture('#c97f2e', '#ffc62e'),
-  buildingTexture('#7d4423', '#ff9214'),
-];
+const _WALL_DEFS = [['#b5371d', '#d62300'], ['#c97f2e', '#ffc62e'], ['#7d4423', '#ff9214']];
+const wallTexes = _WALL_DEFS.map(([base, trim]) => {
+  const wt = buildingTexture(base, trim);
+  wt.narrow = buildingTextureNarrow(base, trim);   // paired one-window facade for tiny faces
+  return wt;
+});
 const roofMat = new THREE.MeshLambertMaterial({ color: '#3a1c10' });
 
 // box material array: facade texture tiled to the face's world length (one tile
 // per ~4 units, so texels never stretch), flat roof on top
-function buildingMat(baseTex, faceLength) {
-  // EXACT (un-rounded) repeat: one 4-window tile per 4 world units, always. Rounding
-  // used to cram a whole tile into a narrow slab → skinny, stretched windows (the
-  // "skinny texture" bug). With an exact repeat every window stays the same real size
-  // no matter the slab width; a partial window at a seam is fine since flush storefront
-  // slabs read as a continuous facade.
-  const rep = Math.max(1, faceLength / 4);
-  const t = baseTex.map.clone(); t.needsUpdate = true; t.repeat.set(rep, 1);
-  const e = baseTex.emissive.clone(); e.needsUpdate = true; e.repeat.set(rep, 1);
-  e.generateMipmaps = false; e.minFilter = THREE.LinearFilter;  // crisp glow per window
-  // emissiveMap glows only the lit windows (warm), so the city looks self-lit
-  const side = new THREE.MeshLambertMaterial({
+// box material array — each pair of side faces is sized to ITS OWN width so windows never
+// squish: the ±x faces span d, the ±z faces span w. Faces narrower than ~one panel use the
+// one-window facade. `opts.onTop` biases the depth so where two walls overlap only this
+// one's texture shows (kills the z-fighting flicker between nested/overlapping walls).
+function buildingMat(baseTex, w, d, opts = {}) {
+  const xFace = wallSideMat(baseTex, d, opts);   // faces with ±x normal span the d (z) dimension
+  const zFace = wallSideMat(baseTex, w, opts);   // faces with ±z normal span the w (x) dimension
+  return [xFace, xFace, roofMat, roofMat, zFace, zFace];
+}
+function wallSideMat(baseTex, span, opts = {}) {
+  const narrow = span < 2.2;                     // tiny face → exactly one window, no squish
+  const src = narrow ? baseTex.narrow : baseTex;
+  const rep = narrow ? 1 : Math.max(1, span / 4);
+  const t = src.map.clone(); t.needsUpdate = true; t.repeat.set(rep, 1);
+  const e = src.emissive.clone(); e.needsUpdate = true; e.repeat.set(rep, 1);
+  e.generateMipmaps = false; e.minFilter = THREE.LinearFilter;   // crisp glow per window
+  const m = new THREE.MeshLambertMaterial({
     map: t, emissive: new THREE.Color('#fff0c4'), emissiveMap: e, emissiveIntensity: 1.5,
   });
-  return [side, side, roofMat, roofMat, side, side];
+  if (opts.onTop) { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = -2; }
+  return m;
 }
 
 // checker floor tiled at one tile per 2 world units regardless of patch size
@@ -1990,7 +2088,7 @@ function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
   if (donk && col === '#8e44ad') {
     const pud = new THREE.Mesh(
       new THREE.PlaneGeometry(3.0, 3.0),
-      new THREE.MeshBasicMaterial({ map: purplePuddleTex, transparent: true, depthWrite: false }));
+      new THREE.MeshBasicMaterial({ map: purplePuddleTex, transparent: true, depthWrite: false, alphaTest: 0.04 }));
     pud.rotation.x = -Math.PI / 2;
     pud.position.set(x, 0.016, z + 1.3);
     group.add(pud);
@@ -2109,6 +2207,7 @@ function makePickup(group, x, y, z, type, opts = {}) {
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: frames[0], transparent: true }));
   spr.scale.set(gold ? 1.25 : 1.45, gold ? 1.55 : 1.8, 1);
   spr.position.set(x, y, z);
+  spr.renderOrder = 2;
   group.add(spr);
   // the glow is a real PointLight; ADDING one mid-run forces THREE to recompile every
   // material in the scene (a big hitch). Instant dance-bonus drops pass noGlow so they
@@ -2126,31 +2225,30 @@ function makePickup(group, x, y, z, type, opts = {}) {
   };
 }
 
-// "X marks the spot" paint mark for a boss-drop teabag/dance zone — two white brush
-// strokes that paint themselves on (then breathe) to lure the player over to crouch.
-const xStrokeTex = canvasTexture(64, (ctx, s) => {
+// "X marks the spot" paint mark for a boss-drop teabag/dance zone. Both diagonals are
+// painted onto ONE canvas (a single union'd shape) so the crossing is a smooth blended
+// mark — not two overlapping coplanar quads that z-fight and read like crossed tape.
+const xMarkTex = canvasTexture(128, (ctx, s) => {
   ctx.clearRect(0, 0, s, s);
-  // crisp THICK solid-white stroke with round caps (a fat paint streak)
-  ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.62;
-  ctx.beginPath(); ctx.moveTo(s * 0.14, s / 2); ctx.lineTo(s * 0.86, s / 2); ctx.stroke();
+  ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = s * 0.17;
+  const a = s * 0.22, b = s * 0.78;
+  ctx.beginPath();
+  ctx.moveTo(a, a); ctx.lineTo(b, b);                 // ╲
+  ctx.moveTo(b, a); ctx.lineTo(a, b);                 // ╱  (same path → unioned, seamless cross)
+  ctx.stroke();
 });
 function makeTeabagMark(group, x, z) {
-  const g = new THREE.Group();
-  g.position.set(x, 0.05, z);
-  g.rotation.x = -Math.PI / 2;                        // lay the X flat on the street
-  const LEN = 2.1, THICK = 0.62;                      // thick white lines
-  const bars = [Math.PI / 4, -Math.PI / 4].map(rot => {
-    const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(LEN, THICK),
-      new THREE.MeshBasicMaterial({ map: xStrokeTex, transparent: true, opacity: 0, depthWrite: false }));
-    m.rotation.z = rot;          // orient the stroke to a diagonal of the X
-    m.scale.x = 0.001;           // unpainted — grown along its length by the paint-on anim
-    m.renderOrder = 4;           // sit above the ground shadow discs / ketchup decals
-    g.add(m);
-    return m;
-  });
-  group.add(g);
-  return { group: g, bars, t: 0 };
+  // ONE quad with the whole X. alphaTest drops the transparent padding so the decal
+  // obstructs by its content, never as a blank box.
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.8, 2.8),
+    new THREE.MeshBasicMaterial({ map: xMarkTex, transparent: true, opacity: 0, depthWrite: false, alphaTest: 0.01 }));
+  mesh.rotation.x = -Math.PI / 2;                     // lay the X flat on the street
+  mesh.position.set(x, 0.05, z);
+  mesh.scale.setScalar(0.4);                          // grows in via the paint-on anim
+  mesh.renderOrder = 1;                               // layer 1: ground mark, with the shadow discs
+  group.add(mesh);
+  return { mesh, t: 0 };
 }
 
 function makeEnemy(group, def, x, z, rng) {
@@ -2172,15 +2270,16 @@ function makeEnemy(group, def, x, z, rng) {
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false,
+      color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false, alphaTest: 0.05,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     }));
   blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.035, z);
-  blob.renderOrder = 2;                 // over ground decals so it can't sort-flip into a square
+  blob.renderOrder = 1;                 // layer 1: above ground paint, below world sprites
   group.add(blob);
   const blobTop = makeTopBlob(blobGeo);
-  blobTop.renderOrder = 3;
+  blobTop.renderOrder = 1;
   group.add(blobTop);
+  spr.renderOrder = 2;                  // body draws over every shadow disc
   return {
     def, spr, blob, blobTop, hp: def.hp, maxHp: def.hp,
     pos: new THREE.Vector3(x, 0, z),
@@ -2225,7 +2324,9 @@ function generateLevel(n, seedOffset) {
   const obstacles = [];   // jump counters / slide bars the enraged boss can bust through
 
   const bossLevel = n % 5 === 0;
-  const doubleBoss = bossLevel && n >= 25 && rng() < 0.5;   // level 25+ → 50% chance of double
+  const bossRush = n === 100;                               // L100 = boss-rush finale
+  const doubleBoss = bossRush ? true : (bossLevel && n >= 25 && rng() < 0.5);   // L25+ → 50%; L100 → always
+  const veggieMult = bossRush ? 3 : 1;                      // L100 throws 3× the veggies
   // grease capacity grows +15 per boss felled to reach this level, capped at +150 (max-grease mode)
   const bossesFelled = Math.min(10, Math.floor((n - 1) / 5));
   const greaseMax = 115 + bossesFelled * 15;
@@ -2260,7 +2361,7 @@ function generateLevel(n, seedOffset) {
       const blen = Math.min(5 + rng() * 7, -bz);
       const bh = 4.5 + rng() * 4.5;
       addBox(group, boxes, side * (LOT_HALF + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen,
-        buildingMat(wallTexes[(rng() * 3) | 0], blen));
+        buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen));
       if (rng() < 0.4) {
         const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
         if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
@@ -2274,7 +2375,7 @@ function generateLevel(n, seedOffset) {
   }
   // windowed back building closing off the lot
   addBox(group, boxes, 0, 0, lotZ0 - WALL_T / 2, LOT_HALF * 2 + WALL_T * 2, 8, WALL_T,
-    buildingMat(wallTexes[1], LOT_HALF * 2));
+    buildingMat(wallTexes[1], LOT_HALF * 2 + WALL_T * 2, WALL_T));
   // painted bay slots along both sides of the back region, with cars in ~60% of them
   const bayGap = 6.5;
   const bayZ0 = lotZ0 + 3;
@@ -2303,8 +2404,10 @@ function generateLevel(n, seedOffset) {
     const si = baySlots.indexOf(avail[(rng() * avail.length) | 0]);
     usedSlots.add(si);
     const s = baySlots[si];
-    let carYaw = rng() < 0.5 ? 0 : Math.PI;
-    if (rng() < 0.2) carYaw += (rng() < 0.5 ? -1 : 1) * (0.12 + rng() * 0.10);
+    // headlights (car front, local -z) point toward the peanut on the RIGHT bays (+x → face +z,
+    // toward the spawn) and the other way on the LEFT bays (-x → face -z)
+    let carYaw = s.x > 0 ? Math.PI : 0;
+    if (rng() < 0.2) carYaw += (rng() < 0.5 ? -1 : 1) * (0.10 + rng() * 0.08);   // small park jitter
     const info = buildCar(group, boxes, s.x, s.z, CAR_COLORS[(rng() * CAR_COLORS.length) | 0], rng, carYaw, {
       allowDonk: donkAllowedLevel && !donkUsed,
       allowBigTruck: s.front && !bigTruckUsed,
@@ -2391,7 +2494,7 @@ function generateLevel(n, seedOffset) {
         const blen = remaining < 2 * MIN_WALL ? remaining
                                               : Math.min(MIN_WALL + rng() * MIN_WALL, remaining - MIN_WALL);
         const bh = 4 + rng() * 5.5;
-        yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], blen), { wall: true });
+        yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen), { wall: true });
         if (rng() < 0.4) {
           const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
           if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
@@ -2412,7 +2515,7 @@ function generateLevel(n, seedOffset) {
       if (wide - narrow > 0.05) {
         const segW = wide - narrow + WALL_T;            // cover the step + overlap both walls
         const bh = 5 + rng() * 3;
-        for (const side of [-1, 1]) yawBox(side * (narrow + wide + WALL_T) / 2, 0, 0, segW, bh, WALL_T, buildingMat(wallTexes[2], segW), { wall: true });
+        for (const side of [-1, 1]) yawBox(side * (narrow + wide + WALL_T) / 2, 0, 0, segW, bh, WALL_T, buildingMat(wallTexes[2], segW, WALL_T, { onTop: true }), { wall: true });
       }
     }
     prevHalf = half;
@@ -2475,7 +2578,7 @@ function generateLevel(n, seedOffset) {
     if (!isEnd && i > 0 && rng() < 0.45) {
       const r = 1.6 + rng() * 1.4;
       const p = toWorld((rng() * 2 - 1) * (half - r - 0.5), 2 + rng() * (len - 4));
-      const pud = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false }));
+      const pud = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2), new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false, alphaTest: 0.04 }));
       pud.rotation.x = -Math.PI / 2; pud.position.set(p.x, 0.015, p.z); group.add(pud);
       slowZones.push({ x: p.x, z: p.z, r });
     }
@@ -2484,7 +2587,7 @@ function generateLevel(n, seedOffset) {
     if (i > 0 && !(isEnd && bossLevel)) {
       const maxTier = clamp(1 + Math.floor(n / 2), 1, VEGGIES.length);
       let count = isEnd ? 2 + Math.min(4, Math.floor(n / 2)) : 1 + ((rng() * (1 + n * 0.5)) | 0);
-      count = Math.min(count, 6);
+      count = Math.min(count * veggieMult, 6 * veggieMult);
       for (let e = 0; e < count; e++) {
         const p = toWorld((rng() * 2 - 1) * (half - 1.2), 2 + rng() * (len - 4));
         enemies.push(makeEnemy(group, VEGGIES[(rng() * maxTier) | 0], p.x, p.z, rng));
@@ -2499,12 +2602,12 @@ function generateLevel(n, seedOffset) {
   cx = endCx; cz = endCz; theta = endTheta;          // re-anchor toWorld to the plaza start
   const plazaMid = endPlaza.len / 2;
   // end wall just past the burger
-  yawBox(0, 0, endPlaza.len + WALL_T / 2, endPlaza.half * 2 + 8, 7, WALL_T, buildingMat(wallTexes[0], endPlaza.half * 2 + 8), { wall: true });
+  yawBox(0, 0, endPlaza.len + WALL_T / 2, endPlaza.half * 2 + 8, 7, WALL_T, buildingMat(wallTexes[0], endPlaza.half * 2 + 8, WALL_T), { wall: true });
 
   const bw = toWorld(0, plazaMid);                   // burger world position
   const burgerPos = new THREE.Vector3(bw.x, 0, bw.z);
   const burger = new THREE.Sprite(new THREE.SpriteMaterial({ map: burgerFrames[0], transparent: true }));
-  burger.scale.set(5.2, 5.2, 1); burger.position.set(bw.x, 2.7, bw.z); group.add(burger);
+  burger.scale.set(5.2, 5.2, 1); burger.position.set(bw.x, 2.7, bw.z); burger.renderOrder = 2; group.add(burger);
   const glow = new THREE.PointLight('#ffc62e', 60, 22); glow.position.set(bw.x, 4, bw.z); group.add(glow);
   const podium = yawBox(0, 0, plazaMid, 3.4, 0.5, 3.4, new THREE.MeshLambertMaterial({ color: '#ffc62e', emissive: '#7a4a00' }), { wall: false });
   podium.receiveShadow = true;
@@ -2516,6 +2619,7 @@ function generateLevel(n, seedOffset) {
 
   // ===== BOSS — guards the burger on every 5th level (two at 25+) =====
   const bosses = [];
+  const bossWave = [];   // L100 boss-rush: queued pairs that spawn from the burger as you clear them
   if (bossLevel) {
     const pickPool = () => BOSS_POOLS[(rng() * BOSS_POOLS.length) | 0];
     const pickName = (pool, exclude) => { const avail = pool.names.filter(nm => nm !== exclude); return avail[(rng() * avail.length) | 0]; };
@@ -2542,17 +2646,26 @@ function generateLevel(n, seedOffset) {
       if (bosses[0].blob) bosses[0].blob.position.set(b0.x, bosses[0].blob.position.y, b0.z);
     } else spawnSmallVeggies(pool1, 2);
     bosses.forEach(b => enemies.push(b));
-    const basicN = 2 + ((rng() * 3) | 0);
+    const basicN = (2 + ((rng() * 3) | 0)) * veggieMult;
     for (let i = 0; i < basicN; i++) {
       const p = bossW((rng() * 2 - 1) * (endPlaza.half - 2), -8 + (rng() * 2 - 1) * 6);
       enemies.push(makeEnemy(group, VEGGIES[(rng() * 3) | 0], p.x, p.z, rng));
+    }
+    // L100 boss rush: queue 2 more boss PAIRS (3 pairs total). Each pair spawns from the
+    // burger point and chases once the prior pair is cleared (spawnBossWave, on boss-down).
+    if (bossRush) {
+      for (let w = 0; w < 2; w++) {
+        const pa = pickPool(), na = pickName(pa, null);
+        const pb = pickPool(), nb = pickName(pb, pa === pb ? na : null);
+        bossWave.push([{ pool: pa, name: na }, { pool: pb, name: nb }]);
+      }
     }
   }
 
   scene.add(group);
   level = {
     group, boxes, slowZones, enemies, bosses, pickups, danceSpots, obstacles, bossLevel, doubleBoss,
-    burger, burgerPos, ring, glow,
+    burger, burgerPos, ring, glow, bossRush, bossWave, waveNum: 1,
     endZ: cz, frameT: 0, frame: 0, won: false, panT: PAN_DUR, introT: 1.0, lockWarnCD: 0,
   };
 
@@ -2799,14 +2912,19 @@ function startRun(atLevel) {
   startLevelToast();
 }
 
+// 100-level cap with unlock semantics: reaching 99 unlocks all 100; best never exceeds 100
+function unlockTo(idx) {
+  saveData.best = Math.min(100, Math.max(saveData.best, idx >= 99 ? 100 : idx));
+  persist();
+}
+
 function winLevel() {
   if (level.won) return;
   level.won = true;
   timerRunning = false;
   runLevels++;
   saveData.total++;
-  if (levelIndex > saveData.best) saveData.best = levelIndex;
-  persist();
+  unlockTo(levelIndex);
   ui.bossbar.classList.remove('on');
   kills && AudioFX.kill();
   AudioFX.win();
@@ -2829,12 +2947,24 @@ function showComplete() {
 }
 
 function nextLevel() {
-  levelIndex++;
+  levelIndex = levelIndex >= 100 ? 1 : levelIndex + 1;   // silent wrap to 1 after the L100 cap
   AudioFX.init();
   generateLevel(levelIndex, levelIndex);
   setState('playing');
   lockPointer();
   AudioFX.init(); AudioFX.fireBounce();  // firework bounce on next-level
+  startLevelToast();
+}
+
+// jump straight to level n (debug terminal): unlock through n, keep current health
+function skipToLevel(n) {
+  n = clamp(n | 0, 1, 100);
+  levelIndex = n;
+  unlockTo(n);
+  AudioFX.init();
+  generateLevel(n, n);
+  setState('playing');
+  lockPointer();
   startLevelToast();
 }
 
@@ -2880,13 +3010,13 @@ function shoot() {
     dir.y += (Math.random() - 0.5) * 0.025;
     dir.z += (Math.random() - 0.5) * 0.025;
     dir.normalize();
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: peanutTex, transparent: true }));
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true }));
     spr.scale.set(0.32, 0.42, 1);
     spr.material.rotation = Math.random() * Math.PI * 2;
     spr.position.copy(camera.position).addScaledVector(dir, 0.6);
     spr.position.y -= 0.12;
     scene.add(spr);
-    projectiles.push({ spr, vel: dir.multiplyScalar(42), life: 1.6, spin: (Math.random() - 0.5) * 14 });
+    projectiles.push({ spr, vel: dir.multiplyScalar(42), life: 1.6, spin: (Math.random() - 0.5) * 14, frames: ammoFrames, frameT: 0 });
     AudioFX.shoot();
     return;
   }
@@ -2921,12 +3051,12 @@ function shoot() {
   dir.z += (Math.random() - 0.5) * 0.025;
   dir.normalize();
 
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: peanutTex, transparent: true }));
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true }));
   spr.scale.set(0.32, 0.42, 1);
   spr.material.rotation = Math.random() * Math.PI * 2;
   spr.position.copy(from).addScaledVector(dir, 0.7);
   scene.add(spr);
-  projectiles.push({ spr, vel: dir.multiplyScalar(42), life: 1.6, spin: (Math.random() - 0.5) * 14 });
+  projectiles.push({ spr, vel: dir.multiplyScalar(42), life: 1.6, spin: (Math.random() - 0.5) * 14, frames: ammoFrames, frameT: 0 });
   AudioFX.shoot();
 }
 
@@ -2937,6 +3067,11 @@ function updateProjectiles(dt) {
     p.vel.y -= 2.5 * dt;
     p.spr.position.addScaledVector(p.vel, dt);
     p.spr.material.rotation += p.spin * dt;
+    if (p.frames && p.frames.length > 1) {          // animated ammo: cycle the glint as it flies
+      p.frameT += dt;
+      p.spr.material.map = p.frames[((p.frameT / 0.05) | 0) % p.frames.length];
+      p.spr.material.needsUpdate = true;
+    }
     let dead = p.life <= 0 || p.spr.position.y < 0;
 
     if (!dead) {
@@ -2992,8 +3127,10 @@ function updateProjectiles(dt) {
               if (PLAYER.greaseMax >= 250) ui.sprintfill.parentElement.parentElement.classList.add('maxgrease');
               ui.bosshp.style.width = `${bossHpFrac() * 100}%`;
               const allDown = level.bosses.every(bz => !bz.alive);
-              if (allDown) { ui.bossbar.classList.remove('on'); toast('BOSS DOWN — GRAB THE BURGER!', 2600); }
-              else toast('ONE DOWN — FINISH THE OTHER!', 1800);
+              if (allDown) {
+                if (level.bossWave && level.bossWave.length) spawnBossWave();   // rush: next pair bursts from the burger
+                else { ui.bossbar.classList.remove('on'); toast('BOSS DOWN — GRAB THE BURGER!', 2600); }
+              } else toast('ONE DOWN — FINISH THE OTHER!', 1800);
             } else {
               spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#6aa84f', 26, 5, { life: 0.8 });
               spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#ffc62e', 14, 4, { life: 0.6 });
@@ -3023,6 +3160,27 @@ function bossHpFrac() {
   let hp = 0, mx = 0;
   for (const bz of level.bosses) { mx += bz.maxHp; if (bz.alive) hp += Math.max(0, bz.hp); }
   return mx ? hp / mx : 0;
+}
+
+// L100 boss rush: pop the next queued pair and spawn it FROM the burger point so it charges
+// the player. Becomes the live `level.bosses` (bar + lock track it); pushed into the enemy list.
+function spawnBossWave() {
+  const wave = level.bossWave.shift();
+  const bp = level.burgerPos;
+  const pair = wave.map((w, k) => {
+    const ox = (k ? 1 : -1) * 2.6;
+    const b = makeBoss(level.group, levelIndex, bp.x + ox, bp.z, Math.random, w.pool, w.name);
+    level.enemies.push(b);
+    return b;
+  });
+  level.bosses = pair;
+  level.waveNum++;
+  ui.bossname.textContent = pair[0].pool === pair[1].pool
+    ? `${pair[0].def.name} & ${pair[1].def.name}` : 'DOUBLE TROUBLE';
+  ui.bosshp.style.width = '100%';
+  ui.bossbar.classList.add('on');
+  toast(`WAVE ${level.waveNum} — INCOMING!`, 1700);
+  AudioFX.boom(); rumble(0.7, 0.5, 240);
 }
 
 const tmpV = new THREE.Vector3();
@@ -3211,18 +3369,16 @@ function updatePickups(dt, time) {
   for (const ds of level.danceSpots || []) {
     const m = ds.mark; if (!m) continue;
     ds.markT = (ds.markT || 0) + dt;
+    const mat = m.mesh.material;
     if (ds.used) {
-      m.fade = Math.max(0, (m.fade === undefined ? 1 : m.fade) - dt * 2.4);
-      m.bars[0].material.opacity *= (1 - clamp(6 * dt, 0, 1));
-      m.bars[1].material.opacity *= (1 - clamp(6 * dt, 0, 1));
-      if (m.fade <= 0) m.group.visible = false;
+      mat.opacity = Math.max(0, mat.opacity - dt * 2.2);             // wipe away once danced
+      if (mat.opacity <= 0.001) m.mesh.visible = false;
     } else {
-      const t = Math.max(0, ds.markT - 0.5);                         // small delay: diamond lands first
-      const e1 = clamp(t / 0.35, 0, 1), e2 = clamp((t - 0.45) / 0.35, 0, 1);
+      const t = Math.max(0, ds.markT - 0.5);                         // small delay: the diamond lands first
+      const paint = clamp(t / 0.6, 0, 1);                            // paint-on grow
       const pulse = 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(time * 4.5));
-      m.bars[0].scale.x = Math.max(0.001, e1); m.bars[0].material.opacity = e1 * 0.95 * pulse;
-      m.bars[1].scale.x = Math.max(0.001, e2); m.bars[1].material.opacity = e2 * 0.95 * pulse;
-      m.group.scale.setScalar(1 + 0.05 * Math.sin(time * 4.5));
+      mat.opacity = paint * 0.95 * pulse;
+      m.mesh.scale.setScalar(0.4 + 0.6 * paint + 0.04 * paint * Math.sin(time * 4.5));  // pop in, then breathe
     }
   }
 }
@@ -3475,7 +3631,8 @@ function updatePlayer(dt) {
 
   // reach the burger? — on boss levels it stays locked until the boss is down
   const bd = Math.hypot(PLAYER.pos.x - level.burgerPos.x, PLAYER.pos.z - level.burgerPos.z);
-  const bossBlocking = level.bosses && level.bosses.some(bz => bz.alive);
+  const bossBlocking = (level.bosses && level.bosses.some(bz => bz.alive)) ||
+                       (level.bossWave && level.bossWave.length > 0);   // rush: locked until all waves clear
   if (bd < 3.0 && !level.won) {
     if (bossBlocking) {
       level.lockWarnCD -= dt;
@@ -3844,16 +4001,19 @@ function tick() {
     }
 
     if (state === 'playing') {
-      if (level.panT > 0) level.panT -= dt;
-      else if (level.introT > 0) level.introT -= dt;
-      if (timerRunning) {
-        levelTime += dt;
-        ui.timertext.textContent = fmtTime(levelTime * 1000);
+      // the debug terminal freezes the sim (still renders) so the idle player isn't killed
+      if (!debugOpen) {
+        if (level.panT > 0) level.panT -= dt;
+        else if (level.introT > 0) level.introT -= dt;
+        if (timerRunning) {
+          levelTime += dt;
+          ui.timertext.textContent = fmtTime(levelTime * 1000);
+        }
+        updatePlayer(dt);
+        updateEnemies(dt, time);
+        updatePickups(dt, time);
+        updateProjectiles(dt);
       }
-      updatePlayer(dt);
-      updateEnemies(dt, time);
-      updatePickups(dt, time);
-      updateProjectiles(dt);
 
       // sprint UI — bar scales wider with capacity; fill shows % of current max
       const barScale = PLAYER.greaseMax / 115;  // base=1x, caps at ~2.17x (250/115)
