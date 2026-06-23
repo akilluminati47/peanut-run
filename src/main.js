@@ -393,9 +393,13 @@ scene.add(hemi);
 // single source of truth for where the moon is, so its light and the moon sprite
 // always agree — shadows fall straight away from the moon as the point of light
 const MOON_DIR = new THREE.Vector3(0.55, 0.66, 0.52).normalize();
+// the ACTIVE moon direction for the current level — boss levels mirror it to the
+// OTHER side (setMoonSide). The moonlight and the sky's moon sprite both read this
+// so the shadows always fall straight away from wherever the moon actually is.
+const moonDir = MOON_DIR.clone();
 const SUN_DIST = 50;
 const sun = new THREE.DirectionalLight('#cdd9ff', 1.05);   // the moon
-sun.position.copy(MOON_DIR).multiplyScalar(SUN_DIST);
+sun.position.copy(moonDir).multiplyScalar(SUN_DIST);
 sun.castShadow = true;
 sun.shadow.mapSize.set(4096, 4096);
 // symmetric frustum centred on the player (the shadow target), large enough that
@@ -532,16 +536,31 @@ function buildNightSky() {
   });
   const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, fog: false, depthWrite: false, transparent: true }));
   moon.scale.setScalar(58);
-  moon.position.copy(MOON_DIR).multiplyScalar(R - 20);
+  moon.position.copy(moonDir).multiplyScalar(R - 20);
   moon.renderOrder = 1;   // on top of everything
   group.add(moon);
+  moonSprite = moon;
 
   return group;
 }
 const twinkles = [];
+let moonSprite = null;          // the billboard moon, repositioned by setMoonSide
 const sky = buildNightSky();
 scene.add(sky);
 const SKY_R = 320;
+// mirror the moon (and therefore its light + the shadows) to the OTHER side. Boss
+// levels flip it so they read distinctly; everything that casts/draws by the moon
+// follows `moonDir`, so light, sprite and shadows stay in agreement.
+function setMoonSide(flip) {
+  // mirror across the run axis (negate x only): the moon stays ahead in the sky where
+  // you can see it as you run, just swapped to the opposite (left) side.
+  if (flip) moonDir.set(-MOON_DIR.x, MOON_DIR.y, MOON_DIR.z).normalize();
+  else moonDir.copy(MOON_DIR);
+  if (moonSprite) {
+    const r = moonSprite.position.length() || SKY_R;
+    moonSprite.position.copy(moonDir).multiplyScalar(r);
+  }
+}
 // MOON_DIR is declared up by the moonlight so the light and the sky agree
 function randomizeTwinkles() {
   const RAD = SKY_R - 14;     // FIXED distance — comfortably inside the camera far plane (400)
@@ -553,7 +572,7 @@ function randomizeTwinkles() {
     } while (d > 1 || d < 0.05);
     const dir = new THREE.Vector3(x, y, z).normalize();
     // retry if within ~25° of the moon
-    while (dir.dot(MOON_DIR) > 0.90) {
+    while (dir.dot(moonDir) > 0.90) {
       do { x = Math.random() * 2 - 1; y = Math.random(); z = Math.random() * 2 - 1; d = x * x + y * y + z * z; }
       while (d > 1 || d < 0.05);
       dir.set(x, y, z).normalize();
@@ -592,6 +611,53 @@ function loadTex(url) {
   return new Promise((res, rej) => texLoader.load(url, t => {
     t.colorSpace = THREE.SRGBColorSpace; res(t);
   }, undefined, rej));
+}
+// pull just the bright glint out of a peanut frame as white-on-transparent — the moving
+// "sparkle" we overlay on the default peanut (the gold/diamond shine, which never clips)
+function extractSparkle(tex) {
+  const img = tex.image, w = img.width, h = img.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, w, h), px = d.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const mn = Math.min(px[i], px[i + 1], px[i + 2]);
+    const a = (px[i + 3] < 8 || mn < 175) ? 0 : Math.min(255, (mn - 175) * 4);  // only the bright shine
+    px[i] = px[i + 1] = px[i + 2] = 255; px[i + 3] = a;
+  }
+  ctx.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+// composite one ammo frame: the DEFAULT peanut, tinted to `tint`, with the white sparkle added
+function compositeAmmoFrame(peanutImg, tint, sparkleImg) {
+  const w = peanutImg.width, h = peanutImg.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(peanutImg, 0, 0, w, h);                         // default peanut shape
+  ctx.globalCompositeOperation = 'source-atop';                 // tint only the peanut, keep its alpha + shading
+  ctx.globalAlpha = 0.6; ctx.fillStyle = '#' + tint.getHexString(); ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'lighter';                     // add the glint on top (stays bright)
+  ctx.drawImage(sparkleImg, 0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+// dominant (saturated, opaque) colour of a texture, normalised to full brightness — used to
+// match an ammo tint to its static "K" emote's hue
+function dominantColor(tex) {
+  const img = tex.image, w = img.width, h = img.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] < 128) continue;
+    const R = px[i], G = px[i + 1], B = px[i + 2];
+    if (Math.max(R, G, B) - Math.min(R, G, B) < 38) continue;   // skip the white glare / greys
+    r += R; g += G; b += B; n++;
+  }
+  if (!n) return new THREE.Color(1, 1, 1);
+  const col = new THREE.Color(r / n / 255, g / n / 255, b / n / 255);
+  const mx = Math.max(col.r, col.g, col.b) || 1;
+  return col.multiplyScalar(1 / mx);   // full-brightness hue for a clean multiply
 }
 
 let peanutTex = null;
@@ -639,8 +705,7 @@ const PLAYER = {
   greaseMax: 115,     // sprint capacity; grows +15 per boss felled, cap 250 (max-grease mode)
   crouching: false,
   _wasCrouching: false,
-  danceCount: 0,      // teabag crouches landed in the current 4s window
-  danceT: 0,          // seconds since the window's first crouch
+  danceCount: 0,      // teabag crouches landed on the current spot (4 → bonus health)
   danceSpot: null,    // the dance spot being teabagged
   calmT: 0,
   rechargeMult: 1,
@@ -698,13 +763,16 @@ let _lastWipeDir = 0;         // which edge the face wraps off toward
 // box renders ON the box (clipped to its footprint), the part hanging off drops
 // to the floor — so as you walk on/off a crate the circle is sliced at the edge
 // and the slice slides with you.
-// Soft radial falloff so a slice clipped to a small footprint reads as a SHADOW that
-// fades out, not a hard black box/“hitbox” around the peanut.
-const softShadowTex = canvasTexture(64, (ctx, s) => {
+// SHARP shadow disc: a solid, opaque core out to ~88% radius with only a thin
+// anti-aliased rim. The old wide soft falloff spread a big half-transparent disc
+// that sort-fought the coplanar floor decals and read as a faint translucent BOX
+// over the floor; a crisp disc has almost no faint outer region, so it sits cleanly
+// under the sprite and the box artifact is gone.
+const shadowTex = canvasTexture(128, (ctx, s) => {
   const c = s / 2, g = ctx.createRadialGradient(c, c, 0, c, c, c);
   g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.55, 'rgba(255,255,255,0.82)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
+  g.addColorStop(0.86, 'rgba(255,255,255,1)');   // solid to ~86% → sharp edge
+  g.addColorStop(1, 'rgba(255,255,255,0)');       // 1–2px feathered rim only
   ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
 });
 function makeClipPlanes() {
@@ -773,7 +841,7 @@ function clearOuterClip(planes) {
 }
 function makeTopBlob(geo) {
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: '#000', map: softShadowTex, transparent: true, opacity: 0.34, depthWrite: false,
+    color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false,
     clippingPlanes: makeClipPlanes(),
   }));
   m.rotation.x = -Math.PI / 2;
@@ -827,7 +895,7 @@ function buildPlayer() {
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', map: softShadowTex, transparent: true, opacity: 0.35, depthWrite: false,
+      color: '#000', map: shadowTex, transparent: true, opacity: 0.35, depthWrite: false,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     })
   );
@@ -1739,7 +1807,12 @@ const roofMat = new THREE.MeshLambertMaterial({ color: '#3a1c10' });
 // box material array: facade texture tiled to the face's world length (one tile
 // per ~4 units, so texels never stretch), flat roof on top
 function buildingMat(baseTex, faceLength) {
-  const rep = Math.max(1, Math.round(faceLength / 4));
+  // EXACT (un-rounded) repeat: one 4-window tile per 4 world units, always. Rounding
+  // used to cram a whole tile into a narrow slab → skinny, stretched windows (the
+  // "skinny texture" bug). With an exact repeat every window stays the same real size
+  // no matter the slab width; a partial window at a seam is fine since flush storefront
+  // slabs read as a continuous facade.
+  const rep = Math.max(1, faceLength / 4);
   const t = baseTex.map.clone(); t.needsUpdate = true; t.repeat.set(rep, 1);
   const e = baseTex.emissive.clone(); e.needsUpdate = true; e.repeat.set(rep, 1);
   e.generateMipmaps = false; e.minFilter = THREE.LinearFilter;  // crisp glow per window
@@ -1869,6 +1942,22 @@ function buildCar(group, boxes, x, z, col, rng, yaw, opts = {}) {
   windshield.position.set(0, bodyTop + cabinH / 2, cabFrontZ + wsRake / 2);
   windshield.rotation.x = Math.atan2(wsRake, cabinH);   // top leans back to meet the roof front
   g.add(windshield);
+  // A-pillar fillers: the sloped windshield leaves an open triangular wedge on each
+  // side (hood cowl → roof front edge). Close it with a body-colour panel so the
+  // glass is set into a full frame with side padding, not floating with gaps beside it.
+  const pillarMat = new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide });
+  for (const sx of [-1, 1]) {
+    const px = sx * cabinW / 2;
+    const tri = new THREE.BufferGeometry();
+    tri.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      px, bodyTop,          cabFrontZ,             // glass base, at the hood
+      px, bodyTop,          cabFrontZ + wsRake,    // under the roof front edge
+      px, bodyTop + cabinH, cabFrontZ + wsRake,    // roof front corner
+    ]), 3));
+    tri.setIndex([0, 1, 2]); tri.computeVertexNormals();
+    const pillar = new THREE.Mesh(tri, pillarMat);
+    pillar.castShadow = true; g.add(pillar);
+  }
   const rearWin = new THREE.Mesh(new THREE.BoxGeometry(cabinW * 0.97, cabinH * 0.8, 0.05), glassMat);
   rearWin.position.set(0, bodyTop + cabinH * 0.55, cabBackZ - 0.03); g.add(rearWin);
 
@@ -2014,16 +2103,22 @@ function donkForLevel(n) {
 }
 
 // floating, always-camera-facing, animated healing pickup (Doom-style billboard)
-function makePickup(group, x, y, z, type) {
+function makePickup(group, x, y, z, type, opts = {}) {
   const gold = type === 'gold';
   const frames = gold ? goldFrames : diamondFrames;
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: frames[0], transparent: true }));
   spr.scale.set(gold ? 1.25 : 1.45, gold ? 1.55 : 1.8, 1);
   spr.position.set(x, y, z);
   group.add(spr);
-  const glow = new THREE.PointLight(gold ? '#ffd23b' : '#8fe6ff', gold ? 16 : 24, 10, 2);
-  glow.position.set(x, y, z);
-  group.add(glow);
+  // the glow is a real PointLight; ADDING one mid-run forces THREE to recompile every
+  // material in the scene (a big hitch). Instant dance-bonus drops pass noGlow so they
+  // don't add a light at all — that recompile was the teabag-dance lag.
+  let glow = null;
+  if (!opts.noGlow) {
+    glow = new THREE.PointLight(gold ? '#ffd23b' : '#8fe6ff', gold ? 16 : 24, 10, 2);
+    glow.position.set(x, y, z);
+    group.add(glow);
+  }
   return {
     spr, glow, frames, type, heal: gold ? 1 : 2,
     pos: new THREE.Vector3(x, y, z), baseY: y, bob: Math.random() * Math.PI * 2,
@@ -2077,7 +2172,7 @@ function makeEnemy(group, def, x, z, rng) {
   const blob = new THREE.Mesh(
     blobGeo,
     new THREE.MeshBasicMaterial({
-      color: '#000', map: softShadowTex, transparent: true, opacity: 0.34, depthWrite: false,
+      color: '#000', map: shadowTex, transparent: true, opacity: 0.34, depthWrite: false,
       clippingPlanes: makeOuterClipPlanes(), clipIntersection: true,
     }));
   blob.rotation.x = -Math.PI / 2; blob.position.set(x, 0.035, z);
@@ -2257,26 +2352,9 @@ function generateLevel(n, seedOffset) {
   }
   const lampAt = (lx, lz, cast) => { const p = toWorld(lx, lz); placeLamppost(group, boxes, p.x, p.z, cast); };
 
-  // pick which inner boundaries turn, by how much, staying within ~±80° of forward
-  const turnAt = new Map();
-  if (n >= 6) {
-    const turns = clamp(Math.round((segs.length - 7) * 0.5), 1, 6);   // ~2 on L6, more as levels lengthen
-    const idxs = []; for (let i = 2; i < segs.length - 2; i++) idxs.push(i);
-    for (let i = idxs.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [idxs[i], idxs[j]] = [idxs[j], idxs[i]]; }
-    let cum = 0;
-    for (let t = 0; t < turns && t < idxs.length; t++) {
-      const mag = [Math.PI / 8, Math.PI / 4, Math.PI / 2][(rng() * 3) | 0];
-      const dir = cum > 0.01 ? -1 : cum < -0.01 ? 1 : (rng() < 0.5 ? -1 : 1);   // steer back to forward
-      if (Math.abs(cum + dir * mag) > Math.PI * 0.46) continue;
-      cum += dir * mag; turnAt.set(idxs[t], dir * mag);
-    }
-  }
-  // dead-end stubs once we're past the first double-boss tier; up to two in the max-grease endgame
-  let deadEnds = (n > 25 && !bossLevel) ? (maxGrease ? (rng() < 0.5 ? 2 : rng() < 0.7 ? 1 : 0) : (rng() < 0.4 ? 1 : 0)) : 0;
-  const deadEndSegs = new Set();
-  { const pool = []; for (let i = 2; i < segs.length - 2; i++) pool.push(i);
-    for (let i = pool.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
-    for (let k = 0; k < deadEnds && k < pool.length; k++) deadEndSegs.add(pool[k]); }
+  // STRAIGHT path: the run goes straight from the lot exit to the burger (no turns,
+  // no dead-end stubs). theta stays 0, so toWorld/yawBox are an identity and just keep
+  // the existing OBB-collision codepath working for the axis-aligned boxes.
 
   // the one healing NUTS box lives in a chosen mid segment
   const pkType = pickupForLevel(n);
@@ -2284,43 +2362,34 @@ function generateLevel(n, seedOffset) {
 
   let endCx = 0, endCz = 0, endTheta = 0;                 // path frame at the start of the end plaza
 
+  // ONE continuous tiled floor for the whole straight run (lot exit → past the burger),
+  // sized to the widest stretch so the checker pattern is a single seamless piece —
+  // no per-segment patches whose tiling reset at every seam. The corridor walls below
+  // sit on it; floor that pokes behind the storefronts is hidden by them.
+  const totalLen = segs.reduce((a, s) => a + s.len, 0);
+  const maxHalf = Math.max(...segs.map(s => s.half));
+  addBox(group, boxes, 0, -0.5, totalLen / 2, maxHalf * 2, 0.5, totalLen,
+    floorMat(maxHalf * 2, totalLen), { shadow: false });
+
+  const MIN_WALL = 4;   // narrowest storefront slab (≈ one window-panel) — no skinny slivers
+
   for (let i = 0; i < segs.length; i++) {
     const { len, half } = segs[i];
     const isEnd = i === segs.length - 1;
-
-    // turn the heading at this boundary; drop a fat floor patch so the corner can't open a hole,
-    // then post the new heading's wall ends so the outer wedge the turn opens is sealed off
-    if (turnAt.has(i)) {
-      const seal = Math.max(prevHalf, half) + WALL_T;
-      yawBox(0, -0.5, 0, seal * 2, 0.5, seal * 2, floorMat(seal * 2, seal * 2), { shadow: false, floor: true });
-      theta += turnAt.get(i);
-      const off = Math.max(prevHalf, half) + WALL_T / 2;
-      for (const sd of [-1, 1]) yawBox(sd * off, 0, 0, WALL_T, 4.6 + rng() * 2, WALL_T * 2.4, buildingMat(wallTexes[2], 2), { wall: true });
-    }
     if (isEnd) { endCx = cx; endCz = cz; endTheta = theta; }
-
-    // floor
-    yawBox(0, -0.5, len / 2, half * 2, 0.5, len, floorMat(half * 2, len), { shadow: false, floor: true });
 
     // streetlight every other segment
     if (i > 0 && i % 2 === 0) { const side = (i / 2) % 2 ? 1 : -1; lampAt(side * (half - 1.1), len * 0.2, false); }
 
-    // a dead-end pocket may branch off one side here — decide now so the storefront wall
-    // can leave a doorway for it
-    let de = null;
-    if (deadEndSegs.has(i)) de = { ds: rng() < 0.5 ? -1 : 1, dW: 3 + rng() * 1.5, dL: 5 + rng() * 4, bz: len * 0.5 };
-
-    // storefront buildings down both sides (these yawed slabs ARE the 22.5/45/90° wall pieces)
+    // storefront buildings down both sides. Slabs are MIN_WALL..2·MIN_WALL wide (never
+    // skinny) and tile the whole side with no leftover gap, so the wall is unbroken and
+    // sealed and the window texture never gets crushed.
     for (const side of [-1, 1]) {
       let bz = 0;
-      while (bz < len - 1) {
-        let blen = Math.min(5 + rng() * 9, len - bz);
-        if (de && side === de.ds) {
-          const o0 = de.bz - de.dW / 2, o1 = de.bz + de.dW / 2;
-          if (bz < o0 && bz + blen > o0) blen = o0 - bz;          // stop the slab at the doorway
-          else if (bz >= o0 && bz < o1) { bz = o1; continue; }    // skip across the doorway
-        }
-        if (blen < 0.6) { bz += 0.6; continue; }
+      while (bz < len - 0.01) {
+        const remaining = len - bz;
+        const blen = remaining < 2 * MIN_WALL ? remaining
+                                              : Math.min(MIN_WALL + rng() * MIN_WALL, remaining - MIN_WALL);
         const bh = 4 + rng() * 5.5;
         yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], blen), { wall: true });
         if (rng() < 0.4) {
@@ -2335,25 +2404,18 @@ function generateLevel(n, seedOffset) {
       }
     }
 
-    // shoulder wall where the corridor steps width
+    // width transition: seal the lateral step with a perpendicular wall on each side that
+    // spans from the narrow corridor's inner edge out past the wide wall, flush, so the
+    // play floor is always closed off (the continuous floor already spans the full width).
     if (prevHalf !== null) {
       const wide = Math.max(prevHalf, half), narrow = Math.min(prevHalf, half);
-      if (wide - narrow > 0.3) {
-        for (const side of [-1, 1]) yawBox(side * (narrow + wide) / 2, 0, 0, wide - narrow - 0.1, 4.5 + rng() * 3, 0.7, buildingMat(wallTexes[2], wide - narrow), { wall: true });
-        yawBox(0, -0.496, 0, wide * 2, 0.5, 2, floorMat(wide * 2, 2), { shadow: false, floor: true });
+      if (wide - narrow > 0.05) {
+        const segW = wide - narrow + WALL_T;            // cover the step + overlap both walls
+        const bh = 5 + rng() * 3;
+        for (const side of [-1, 1]) yawBox(side * (narrow + wide + WALL_T) / 2, 0, 0, segW, bh, WALL_T, buildingMat(wallTexes[2], segW), { wall: true });
       }
     }
     prevHalf = half;
-
-    // build the dead-end pocket through the doorway (floor bridges from the corridor edge)
-    if (de) {
-      const { ds, dW, dL, bz } = de;
-      const inX = ds * half;                               // corridor floor edge on that side
-      yawBox(inX + ds * (dL / 2), -0.5, bz, dL + 1.0, 0.5, dW, floorMat(dL, dW), { shadow: false, floor: true });
-      yawBox(inX + ds * (dL + WALL_T / 2), 0, bz, WALL_T, 5, dW + WALL_T * 2, buildingMat(wallTexes[1], dW), { wall: true });
-      for (const s2 of [-1, 1]) yawBox(inX + ds * (dL / 2), 0, bz + s2 * (dW / 2 + WALL_T / 2), dL + 1, 5, WALL_T, buildingMat(wallTexes[0], dL), { wall: true });
-      if (rng() < 0.6) yawBox(inX + ds * (dL * 0.7), 0, bz, 1.2, 1.0, 1.2, crateMat);
-    }
 
     // pick this segment's obstacle (jump bar / slide bar / fry crates) — bars are full-width
     let obstacleZ = null, cratePick = false;
@@ -2494,6 +2556,8 @@ function generateLevel(n, seedOffset) {
     endZ: cz, frameT: 0, frame: 0, won: false, panT: PAN_DUR, introT: 1.0, lockWarnCD: 0,
   };
 
+  // boss levels put the moon on the OTHER side of the sky (light + shadows follow)
+  setMoonSide(bossLevel);
   // reposition the 3 twinkling stars randomly for this level
   randomizeTwinkles();
 
@@ -2510,7 +2574,7 @@ function generateLevel(n, seedOffset) {
   PLAYER.sprint = greaseMax;                 // start each level topped up to capacity
   PLAYER.sliding = false; PLAYER.curHeight = PLAYER.height;
   PLAYER.crouching = false; PLAYER.calmT = 0; PLAYER.rechargeMult = 1;
-  PLAYER.danceCount = 0; PLAYER.danceT = 0; PLAYER.danceSpot = null; PLAYER._wasCrouching = false;
+  PLAYER.danceCount = 0; PLAYER.danceSpot = null; PLAYER._wasCrouching = false;
   PLAYER.aiming = false;
   kills = 0; levelTime = 0; timerRunning = false;
   mouseDX = 0; mouseDY = 0;
@@ -3125,14 +3189,14 @@ function updatePickups(dt, time) {
         spawnBurst(new THREE.Vector3(pk.pos.x, 0.1, pk.pos.z), '#fff3d6', 18, 4, { life: 0.5, grav: -4, spread: 1.6 });
     }
     pk.spr.position.y = pk.baseY + Math.sin(time * 2.6 + pk.bob) * 0.18;
-    pk.glow.position.y = pk.spr.position.y;
+    if (pk.glow) pk.glow.position.y = pk.spr.position.y;
     // 3D distance — pickups float above the fry-box steps, so you jump to reach them
     const eyeY = PLAYER.pos.y + PLAYER.curHeight * 0.6;
     const d = Math.hypot(PLAYER.pos.x - pk.pos.x, PLAYER.pos.z - pk.pos.z, eyeY - pk.spr.position.y);
     if (d < 1.9 && PLAYER.hp < MAX_HP) {
       PLAYER.hp = Math.min(MAX_HP, PLAYER.hp + pk.heal);
       updateHearts();
-      pk.alive = false; pk.spr.visible = false; pk.glow.intensity = 0;
+      pk.alive = false; pk.spr.visible = false; if (pk.glow) pk.glow.intensity = 0;
       const col = pk.type === 'gold' ? '#ffd23b' : '#8fe6ff';
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), col, 34, 6, { life: 0.9 });
       spawnBurst(new THREE.Vector3(pk.pos.x, pk.baseY, pk.pos.z), '#fff3d6', 16, 4, { life: 0.6 });
@@ -3265,20 +3329,21 @@ function updatePlayer(dt) {
     if (!PLAYER._wasCrouching && PLAYER.onGround) {
       const spot = activeDanceSpot();
       if (spot) {
-        if (PLAYER.danceSpot !== spot) { PLAYER.danceSpot = spot; PLAYER.danceCount = 0; PLAYER.danceT = 0; }
+        // count is purely "4 crouches on this spot" — no 4-second window to race against;
+        // it only resets if you leave the spot (handled below).
+        if (PLAYER.danceSpot !== spot) { PLAYER.danceSpot = spot; PLAYER.danceCount = 0; }
         PLAYER.danceCount++;
-        if (PLAYER.danceCount >= 4) {                   // 4 crouches in the 4s window
+        if (PLAYER.danceCount >= 4) {                   // four crouches → bonus health
           spot.used = true;
           PLAYER.danceCount = 0; PLAYER.danceSpot = null;
-          // pop the bonus peanut OUT toward the player + a touch higher so it reads as a
-          // distinct new drop, then float-grab it to actually gain the health
-          const ox = PLAYER.pos.x - spot.x, oz = PLAYER.pos.z - spot.z;
-          const ol = Math.hypot(ox, oz) || 1;
-          const bx = spot.x + (ox / ol) * 1.6, bz = spot.z + (oz / ol) * 1.6;
-          const by = (spot.ground ? 1.1 : 2.4);
-          level.pickups.push(makePickup(level.group, bx, by, bz, spot.type));
+          // drop the bonus peanut directly ON the player so updatePickups grabs it the
+          // very next frame (instant) — and with noGlow so it adds no PointLight (the old
+          // float-out drop both lagged on the new light and could land out of reach).
+          if (PLAYER.hp < MAX_HP) {
+            const py = PLAYER.pos.y + PLAYER.curHeight * 0.6;
+            level.pickups.push(makePickup(level.group, PLAYER.pos.x, py, PLAYER.pos.z, spot.type, { noGlow: true }));
+          }
           toast(spot.type === 'diamond' ? 'DIAMOND DANCE!' : 'NUTTY BONUS!', 1400);
-          AudioFX.init(); AudioFX.heal();
         }
       }
     }
@@ -3296,12 +3361,9 @@ function updatePlayer(dt) {
   }
   PLAYER._wasCrouching = PLAYER.crouching;
 
-  // teabag window: 4s from the first crouch on a spot; expiring or leaving it resets
-  if (PLAYER.danceSpot) {
-    PLAYER.danceT += dt;
-    if (PLAYER.danceT > 4 || activeDanceSpot() !== PLAYER.danceSpot) {
-      PLAYER.danceSpot = null; PLAYER.danceCount = 0;
-    }
+  // the crouch tally resets only if you step off the spot — no time limit (just 4 crouches)
+  if (PLAYER.danceSpot && activeDanceSpot() !== PLAYER.danceSpot) {
+    PLAYER.danceSpot = null; PLAYER.danceCount = 0;
   }
 
   // boost drains; sliding freezes; max health (10 peanuts) = unlimited hot grease
@@ -3449,7 +3511,7 @@ let idleT = 0, idleBlend = 0;  // seconds idle / 0..1 swoop into the attract cam
 let idleAng = 0, idleDir = 1, idleSpeed = 0, idleCycleT = 0, stareAmt = 0, idleFov = 70;
 const IDLE_DELAY = 30, IDLE_R = 3.7, IDLE_H = 1.75, GROUND_CLEAR = 0.3;
 const ORBIT_DUR = 11, STARE_DUR = 5;
-const _moonDir = MOON_DIR;   // same direction the shadow light comes from
+const _moonDir = moonDir;   // same direction the shadow light comes from (tracks boss flips)
 const _pivot = new THREE.Vector3(), _boomDir = new THREE.Vector3();
 const _idlePos = new THREE.Vector3(), _idleQuat = new THREE.Quaternion();
 const _ctrlPos = new THREE.Vector3(), _ctrlQuat = new THREE.Quaternion();
@@ -3737,7 +3799,7 @@ function updateCamera(dt, time) {
 
   // moonlight follows the player: keep the light SUN_DIST away in the moon's
   // direction and aimed at the player so shadows always cast straight from the moon
-  sun.position.set(p.x + MOON_DIR.x * SUN_DIST, MOON_DIR.y * SUN_DIST, p.z + MOON_DIR.z * SUN_DIST);
+  sun.position.set(p.x + moonDir.x * SUN_DIST, moonDir.y * SUN_DIST, p.z + moonDir.z * SUN_DIST);
   sun.target.position.set(p.x, 0, p.z);
 }
 
