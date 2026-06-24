@@ -212,7 +212,12 @@ function signTexture(text, bg, fg) {
     ctx.strokeRect(12, 12, s - 24, s - 24);
     ctx.setLineDash([]);
     ctx.fillStyle = fg;
-    ctx.font = `900 ${s * 0.3}px Rubik, Arial, sans-serif`;
+    // size the word so it sits well inside the border with clear padding (shrink if too wide)
+    let fontPx = s * 0.24;
+    ctx.font = `900 ${fontPx}px Rubik, Arial, sans-serif`;
+    const maxW = s * 0.62;
+    const w = ctx.measureText(text).width;
+    if (w > maxW) { fontPx *= maxW / w; ctx.font = `900 ${fontPx}px Rubik, Arial, sans-serif`; }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(text, s / 2, s / 2);
   });
@@ -1827,6 +1832,30 @@ const BOSS_POOLS = [
 const veggieTextures = {};
 const DECOR_EMOJI = ['🍔', '🍟', '🥤', '🌭', '🍕', '🧂'];
 const decorTextures = {};
+// rooftop emoji sign — depthWrite OFF + alphaTest so its transparent quad never boxes the
+// sprites behind it, and renderOrder 2 puts it on the world-sprite layer
+function makeDecorSign(em, x, y, z) {
+  if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
+  const sign = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: decorTextures[em], transparent: true, depthWrite: false, alphaTest: 0.5,
+  }));
+  sign.scale.set(2.6, 2.6, 1);
+  sign.position.set(x, y, z);
+  sign.renderOrder = 2;
+  return sign;
+}
+// JUMP!/SLIDE! hint as two opaque panes facing OPPOSITE ways, so the word reads correctly whether
+// you run forward OR backtrack (a single DoubleSide plane shows the text mirrored on its back)
+function makeHintSign(tex, size, x, y, z) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  for (const ry of [Math.PI, 0]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({ map: tex }));
+    m.rotation.y = ry;       // FrontSide → each pane's back is culled, so no mirrored copy shows
+    g.add(m);
+  }
+  return g;
+}
 
 let level = null;       // { group, boxes, slowZones, enemies, burger, endZ, spawn }
 let projectiles = [];
@@ -2315,11 +2344,7 @@ function generateLevel(n, seedOffset) {
         buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen));
       if (rng() < 0.4) {
         const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
-        if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
-        const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: decorTextures[em], transparent: true }));
-        sign.scale.set(2.6, 2.6, 1);
-        sign.position.set(side * (LOT_HALF + WALL_T / 2), bh + 1.6, bz + blen / 2);
-        group.add(sign);
+        group.add(makeDecorSign(em, side * (LOT_HALF + WALL_T / 2), bh + 1.6, bz + blen / 2));
       }
       bz += blen;
     }
@@ -2447,6 +2472,10 @@ function generateLevel(n, seedOffset) {
   }
 
   const MIN_WALL = 4;   // narrowest storefront slab (≈ one window-panel) — no skinny slivers
+  // rooftop emoji signs at EVEN world-z intervals along each wall (staggered per side), instead
+  // of a random per-slab chance that clumped and gapped
+  const SIGN_GAP = 12;
+  const nextSign = { '-1': 6, '1': 12 };
 
   for (let i = 0; i < segs.length; i++) {
     const { len, half } = segs[i];
@@ -2467,13 +2496,15 @@ function generateLevel(n, seedOffset) {
                                               : Math.min(MIN_WALL + rng() * MIN_WALL, remaining - MIN_WALL);
         const bh = clamp(blen * niceRatio(), 4, 11);   // square / 4:3 / golden storefront face
         yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen), { wall: true });
-        if (rng() < 0.4) {
-          const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
-          if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
-          const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: decorTextures[em], transparent: true }));
-          sign.scale.set(2.6, 2.6, 1);
-          const sp = toWorld(side * (half + WALL_T / 2), bz + blen / 2);
-          sign.position.set(sp.x, bh + 1.6, sp.z); group.add(sign);
+        // drop a rooftop emoji wherever the even SIGN_GAP grid falls inside this slab (this slab's
+        // roof height sets the sign's y)
+        const wz0 = cz + bz, wz1 = cz + bz + blen;
+        while (nextSign[side] < wz1) {
+          if (nextSign[side] >= wz0) {
+            const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
+            group.add(makeDecorSign(em, side * (half + WALL_T / 2), bh + 1.6, nextSign[side]));
+          }
+          nextSign[side] += SIGN_GAP;
         }
         bz += blen;
       }
@@ -2505,12 +2536,12 @@ function generateLevel(n, seedOffset) {
         const m = yawBox(0, 0, len / 2, half * 2, 1.05, 0.9, counterMatFor(half * 2));
         obstacles.push({ type: 'jump', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
-        if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: jumpSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 3.1, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
+        if (n <= 5) { const sp = toWorld(0, len / 2 - 0.6); group.add(makeHintSign(jumpSignTex, 2.2, sp.x, 3.1, sp.z)); }
       } else if (pick < 0.6) {
         const m = yawBox(0, 1.0, len / 2, half * 2, 1.6, 0.9, slideBarMatFor(half * 2));
         obstacles.push({ type: 'slide', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
-        if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ map: slideSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 4.75, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
+        if (n <= 5) { const sp = toWorld(0, len / 2 - 0.6); group.add(makeHintSign(slideSignTex, 2.4, sp.x, 4.75, sp.z)); }
       }
       cratePick = true;
     }
@@ -2524,7 +2555,7 @@ function generateLevel(n, seedOffset) {
       const nlx = (rng() * 2 - 1) * Math.max(0.4, half - 2.2);
       const np = toWorld(nlx, nlz);
       const nm = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.2, 1.6), nutsCrateMat);
-      nm.position.set(np.x, 0.6, np.z); nm.rotation.y = theta; nm.castShadow = true; nm.receiveShadow = true; group.add(nm);
+      nm.position.set(np.x, 0.6, np.z); nm.rotation.y = theta + Math.PI; nm.castShadow = true; nm.receiveShadow = true; group.add(nm);
       const ca = Math.abs(Math.cos(theta)), sa = Math.abs(Math.sin(theta));
       const nb = new THREE.Box3(new THREE.Vector3(np.x - (ca + 0.8 * sa), 0, np.z - (sa + 0.8 * ca)), new THREE.Vector3(np.x + (ca + 0.8 * sa), 1.2, np.z + (sa + 0.8 * ca)));
       if (Math.abs(theta) > 1e-6) nb.cobb = { cx: np.x, cz: np.z, ry: theta, hx: 1.0, hz: 0.8 };
@@ -2548,7 +2579,8 @@ function generateLevel(n, seedOffset) {
           if (ok) for (const o of placed) if (Math.abs(lx - o.lx) < hw + o.hw - 0.06 && Math.abs(lz - o.lz) < hw + o.hw - 0.06) { ok = false; break; }
         }
         if (!ok) continue;
-        yawBox(lx, 0, lz, cw, cw * (rng() < 0.5 ? 1 : 0.75), cw, rng() < 0.5 ? beefCrateMat : crateMat);  // cube or 4:3 box
+        const cm = yawBox(lx, 0, lz, cw, cw * (rng() < 0.5 ? 1 : 0.75), cw, rng() < 0.5 ? beefCrateMat : crateMat);  // cube or 4:3 box
+        cm.rotation.y += Math.PI;   // spin 180° so the label/top word reads running forward, not backward
         placed.push({ lx, lz, hw });
       }
     }
