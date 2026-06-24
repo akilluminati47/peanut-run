@@ -981,8 +981,8 @@ function execDebug(raw) {
 }
 
 document.addEventListener('keydown', e => {
-  // hidden debug terminal: '/' toggles it (in play or on the menu); while open it eats every key
-  if (e.key === '/' && !debugOpen && (state === 'playing' || state === 'menu')) {
+  // hidden debug terminal: '/' toggles it (in play, on the menu, or paused); eats every key while open
+  if (e.key === '/' && !debugOpen && (state === 'playing' || state === 'menu' || state === 'paused')) {
     e.preventDefault(); setDebugOpen(true); return;
   }
   if (debugOpen) {
@@ -2296,8 +2296,11 @@ function generateLevel(n, seedOffset) {
 
   // ===== START: an enclosed fast-food PARKING LOT (no more void behind spawn) =====
   const h0 = segs[0].half;
-  const LOT_LEN = 48;            // asphalt apron from z=-LOT_LEN up to z=0 (doubled for orbit clearance)
-  const LOT_HALF = Math.max(h0 + 4, 10);
+  // +25% bigger at each milestone (L25/50/75/100, cap 2× at L100) → a deeper lot with more bay
+  // rows, so the final level has a huge lot packed with the most cars.
+  const lotScale = 1 + 0.25 * Math.min(4, Math.floor(n / 25));
+  const LOT_LEN = 48 * lotScale; // asphalt apron from z=-LOT_LEN up to z=0 (doubled for orbit clearance)
+  const LOT_HALF = Math.max(h0 + 4, 10) * lotScale;
   const lotZ0 = -LOT_LEN;
   // asphalt floor (ends exactly at z=0 so it never overlaps the first segment floor)
   addBox(group, boxes, 0, -0.5, -LOT_LEN / 2, LOT_HALF * 2, 0.5, LOT_LEN, lotMat(LOT_HALF * 2, LOT_LEN), { shadow: false });
@@ -2418,14 +2421,30 @@ function generateLevel(n, seedOffset) {
 
   let endCx = 0, endCz = 0, endTheta = 0;                 // path frame at the start of the end plaza
 
-  // ONE continuous tiled floor for the whole straight run (lot exit → past the burger),
-  // sized to the widest stretch so the checker pattern is a single seamless piece —
-  // no per-segment patches whose tiling reset at every seam. The corridor walls below
-  // sit on it; floor that pokes behind the storefronts is hidden by them.
+  // TRIMMED tiled floor: ONE mesh, but only as wide as the corridor at each segment — no
+  // floor pokes past the walls (beyond them is just abyss + skybox). UVs are world-aligned
+  // (1 checker tile = 2 world units) so the pattern stays a single seamless piece across all
+  // the width steps. A matching per-segment collision slab grounds the player.
   const totalLen = segs.reduce((a, s) => a + s.len, 0);
-  const maxHalf = Math.max(...segs.map(s => s.half));
-  addBox(group, boxes, 0, -0.5, totalLen / 2, maxHalf * 2, 0.5, totalLen,
-    floorMat(maxHalf * 2, totalLen), { shadow: false });
+  {
+    const pos = [], uv = [], idx = [];
+    let fz = 0, vi = 0;
+    for (const s of segs) {
+      const h = s.half, z0 = fz, z1 = fz + s.len;
+      pos.push(-h, 0, z0,  h, 0, z0,  h, 0, z1,  -h, 0, z1);
+      uv.push(-h / 2, z0 / 2,  h / 2, z0 / 2,  h / 2, z1 / 2,  -h / 2, z1 / 2);
+      idx.push(vi, vi + 2, vi + 1,  vi, vi + 3, vi + 2);     // wound so the top faces +y
+      boxes.push(new THREE.Box3(new THREE.Vector3(-h, -0.5, z0), new THREE.Vector3(h, 0, z1)));
+      vi += 4; fz = z1;
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    fg.setIndex(idx); fg.computeVertexNormals();
+    const ft = floorTex.clone(); ft.needsUpdate = true; ft.wrapS = ft.wrapT = THREE.RepeatWrapping;
+    const floorMesh = new THREE.Mesh(fg, new THREE.MeshLambertMaterial({ map: ft }));
+    floorMesh.receiveShadow = true; group.add(floorMesh);
+  }
 
   const MIN_WALL = 4;   // narrowest storefront slab (≈ one window-panel) — no skinny slivers
 
@@ -2473,9 +2492,12 @@ function generateLevel(n, seedOffset) {
     }
     prevHalf = half;
 
-    // pick this segment's obstacle (jump bar / slide bar / fry crates) — bars are full-width
+    // pick this segment's obstacle (jump bar / slide bar / fry crates) — bars are full-width.
+    // Only between 20% and 90% of the run so the start is a clear runway and the burger approach
+    // stays open; in that band every segment gets one, so they're consistently spaced.
     let obstacleZ = null, cratePick = false;
-    if (!isEnd && i > 0) {
+    const segCenterZ = cz + len / 2;
+    if (!isEnd && i > 0 && segCenterZ >= 0.2 * totalLen && segCenterZ <= 0.9 * totalLen) {
       const pick = rng();
       if (pick < 0.3) {
         const m = yawBox(0, 0, len / 2, half * 2, 1.05, 0.9, counterMatFor(half * 2));
@@ -2639,6 +2661,7 @@ function generateLevel(n, seedOffset) {
   PLAYER.hp = clamp(Math.max(3, PLAYER.hp), 3, MAX_HP); PLAYER.inv = 0;
   PLAYER.greaseMax = greaseMax;
   PLAYER.sprint = greaseMax;                 // start each level topped up to capacity
+  PLAYER.exhausted = false;
   PLAYER.sliding = false; PLAYER.curHeight = PLAYER.height;
   PLAYER.crouching = false; PLAYER.calmT = 0; PLAYER.rechargeMult = 1;
   PLAYER.danceCount = 0; PLAYER.danceSpot = null; PLAYER._wasCrouching = false;
@@ -3160,16 +3183,20 @@ function updateEnemies(dt, time) {
       if (e.enraged && level.obstacles) {
         for (const ob of level.obstacles) {
           if (ob.broken) continue;
-          const od = Math.hypot(e.pos.x - ob.mesh.position.x, e.pos.z - ob.mesh.position.z);
-          if (od < e.def.r + 2.6) {
-            if (ob.type === 'slide') {                  // bust the drive-thru bar down
+          const oz = ob.mesh.position.z;
+          const od = Math.hypot(e.pos.x - ob.mesh.position.x, e.pos.z - oz);
+          // act on an obstacle that's AHEAD on the way to the player, and from afar (~6u) so it
+          // telegraphs early instead of reacting on contact — and never phases into/through it
+          const ahead = (oz - e.pos.z) * (PLAYER.pos.z - e.pos.z) >= -0.5;
+          if (od < e.def.r + 6 && ahead) {
+            if (ob.type === 'slide') {                  // smash the drive-thru bar from a distance
               ob.broken = true; ob.mesh.visible = false;
               const idx = level.boxes.indexOf(ob.box); if (idx >= 0) level.boxes.splice(idx, 1);
-              spawnBurst(ob.mesh.position, '#ffc62e', 32, 6, { life: 0.8 });
-              spawnBurst(ob.mesh.position, '#fff3d6', 14, 4, { life: 0.5 });
+              spawnBurst(ob.mesh.position, '#ffc62e', 36, 7, { life: 0.9 });
+              spawnBurst(ob.mesh.position, '#fff3d6', 16, 4, { life: 0.5 });
               AudioFX.boom(); rumble(0.6, 0.5, 200);
             } else if (ob.type === 'jump' && e.onGround) {
-              e.vy = 9.5;                                // hop over the counter
+              e.vy = 12;                                 // hop EARLY so it sails clean over the counter
             }
           }
         }
@@ -3488,7 +3515,12 @@ function updatePlayer(dt) {
     // frozen: no drain, no recharge — preserves meter during sprint→slide
     PLAYER.sprinting = wantSprint && PLAYER.sprint > 0 && moving;
   } else {
-    PLAYER.sprinting = wantSprint && PLAYER.sprint > 0 && moving;
+    // hysteresis: once the meter bottoms out you can't sprint again until it recovers a bit.
+    // Without this, holding sprint at 0 grease flips sprinting on/off EVERY frame (recharge a
+    // sliver → sprint → drain to 0 → repeat), which jittered the speed + FOV — the stutter.
+    if (PLAYER.sprint <= 0) PLAYER.exhausted = true;
+    else if (PLAYER.sprint > 15) PLAYER.exhausted = false;
+    PLAYER.sprinting = wantSprint && !PLAYER.exhausted && PLAYER.sprint > 0 && moving;
     if (PLAYER.sprinting) {
       speed = SPRINT;
       PLAYER.sprint = Math.max(0, PLAYER.sprint - (PLAYER.greaseMax >= 250 && levelIndex >= 50 ? 16 : 24) * dt);
