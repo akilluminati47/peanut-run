@@ -2580,7 +2580,7 @@ function generateLevel(n, seedOffset) {
         }
         if (!ok) continue;
         const cm = yawBox(lx, 0, lz, cw, cw * (rng() < 0.5 ? 1 : 0.75), cw, rng() < 0.5 ? beefCrateMat : crateMat);  // cube or 4:3 box
-        cm.rotation.y += Math.PI;   // spin 180° so the label/top word reads running forward, not backward
+        cm.rotation.y += (rng() < 0.2 ? 0 : Math.PI);   // mostly face forward; ~20% face the other way for variety
         placed.push({ lx, lz, hw });
       }
     }
