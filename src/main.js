@@ -696,7 +696,7 @@ const PLAYER = {
   bobT: 0,
 };
 
-const WALK = 7.0, SPRINT = 13.5, NOSTAM_RUN = WALK * 1.35, JUMP_V = 8.6, GRAV = -23;
+const WALK = 7.0, SPRINT = 13.5, NOSTAM_RUN = SPRINT * 0.66, JUMP_V = 8.6, GRAV = -23;
 const SLIDE_TIME = 0.85, SLIDE_SPEED = 16.5, SLIDE_HEIGHT = 0.7;
 const JUMP_COST = 4.5;
 const CROUCH_SPEED = WALK * 0.67, CROUCH_HEIGHT = 1.05, CROUCH_TAP = 0.16;
@@ -2498,18 +2498,21 @@ function generateLevel(n, seedOffset) {
     let obstacleZ = null, cratePick = false;
     const segCenterZ = cz + len / 2;
     if (!isEnd && i > 0 && segCenterZ >= 0.2 * totalLen && segCenterZ <= 0.9 * totalLen) {
+      // an occasional full-width bar to jump/slide, THEN crates in every in-zone segment so the
+      // run stays populated (not scarce) — the crates dodge the bar's lane
       const pick = rng();
-      if (pick < 0.3) {
+      if (pick < 0.18) {
         const m = yawBox(0, 0, len / 2, half * 2, 1.05, 0.9, counterMatFor(half * 2));
         obstacles.push({ type: 'jump', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
         if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: jumpSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 3.1, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
-      } else if (pick < 0.6) {
+      } else if (pick < 0.36) {
         const m = yawBox(0, 1.0, len / 2, half * 2, 1.6, 0.9, slideBarMatFor(half * 2));
         obstacles.push({ type: 'slide', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
         if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ map: slideSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 4.75, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
-      } else { cratePick = true; }
+      }
+      cratePick = true;
     }
 
     // NUTS box for this level (placed before crates so crates can dodge it; clear of any bar)
@@ -2534,7 +2537,7 @@ function generateLevel(n, seedOffset) {
     // fry crates — never overlapping each other / the NUTS box, never under a bar (touching edges ok)
     if (cratePick) {
       const placed = [];
-      const count = (2 + ((rng() * 3) | 0)) * boxMult;
+      const count = (3 + ((rng() * 3) | 0)) * boxMult;   // 3–5 crates per segment (denser, not scarce)
       for (let c = 0; c < count; c++) {
         const cw = 1.1 + rng() * 0.9, hw = cw / 2;
         let lx = 0, lz = 0, ok = false;
