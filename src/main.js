@@ -638,61 +638,14 @@ function loadTex(url) {
     t.colorSpace = THREE.SRGBColorSpace; res(t);
   }, undefined, rej));
 }
-// pull just the bright glint out of a peanut frame as white-on-transparent — the moving
-// "sparkle" we overlay on the default peanut (the gold/diamond shine, which never clips)
-function extractSparkle(tex) {
-  const img = tex.image, w = img.width, h = img.height;
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
-  const d = ctx.getImageData(0, 0, w, h), px = d.data;
-  for (let i = 0; i < px.length; i += 4) {
-    const mn = Math.min(px[i], px[i + 1], px[i + 2]);
-    const a = (px[i + 3] < 8 || mn < 175) ? 0 : Math.min(255, (mn - 175) * 4);  // only the bright shine
-    px[i] = px[i + 1] = px[i + 2] = 255; px[i + 3] = a;
-  }
-  ctx.putImageData(d, 0, 0);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-// composite one ammo frame: the DEFAULT peanut, tinted to `tint`, with the white sparkle added
-function compositeAmmoFrame(peanutImg, tint, sparkleImg) {
-  const w = peanutImg.width, h = peanutImg.height;
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(peanutImg, 0, 0, w, h);                         // default peanut shape
-  ctx.globalCompositeOperation = 'source-atop';                 // tint only the peanut, keep its alpha + shading
-  ctx.globalAlpha = 0.6; ctx.fillStyle = '#' + tint.getHexString(); ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'lighter';                     // add the glint on top (stays bright)
-  ctx.drawImage(sparkleImg, 0, 0, w, h);
-  ctx.globalCompositeOperation = 'source-over';
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-// dominant (saturated, opaque) colour of a texture, normalised to full brightness — used to
-// match an ammo tint to its static "K" emote's hue
-function dominantColor(tex) {
-  const img = tex.image, w = img.width, h = img.height;
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
-  const px = ctx.getImageData(0, 0, w, h).data;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    if (px[i + 3] < 128) continue;
-    const R = px[i], G = px[i + 1], B = px[i + 2];
-    if (Math.max(R, G, B) - Math.min(R, G, B) < 38) continue;   // skip the white glare / greys
-    r += R; g += G; b += B; n++;
-  }
-  if (!n) return new THREE.Color(1, 1, 1);
-  const col = new THREE.Color(r / n / 255, g / n / 255, b / n / 255);
-  const mx = Math.max(col.r, col.g, col.b) || 1;
-  return col.multiplyScalar(1 / mx);   // full-brightness hue for a clean multiply
-}
-
 let peanutTex = null;
 let faceParts = null;       // real photo cut-outs pasted on the head: {eyeL,eyeR,smile,hat}
 let burgerFrames = [];
 let goldTex = null, diamondTex = null;     // first-frame fallbacks
 let goldFrames = [], diamondFrames = [];   // animated healing pickups
-let ammoSets = null;                        // { '10k':[frames], '50k':…, '100k':… } tinted ammo
-let ammoFrames = null;                      // active ammo frame set (null ⇒ default peanutTex)
+let ammoFrames = null;                      // active animated ammo frames (null ⇒ default peanutTex)
+let ammoCheat = 0;                          // 0 default → 1 gold → 2 diamond (debug `ammo` cycles)
+let cheatHealthy = false;                   // debug `healthy`: 2× veggies + boxes
 
 async function loadAssets() {
   peanutTex = await loadTex('assets/sprites/emotes/Peanut.png');
@@ -705,19 +658,8 @@ async function loadAssets() {
   goldFrames = await Promise.all(fids.map(id => loadTex(`assets/sprites/frames/GoldenPeanut/frame_${id}.png`)));
   diamondFrames = await Promise.all(fids.map(id => loadTex(`assets/sprites/frames/DiamondPeanut/frame_${id}.png`)));
   goldTex = goldFrames[0]; diamondTex = diamondFrames[0];
-
-  // animated AMMO sets (debug cheats): the three K-emote stills are used ONLY as a colour
-  // reference — `dominantColor` pulls each one's hue, then every gold-peanut frame is recoloured
-  // to it (default peanut + that frame's moving shine via compositeAmmoFrame). No GIF/frame
-  // extraction: the animation comes for free from the gold shine.
-  const ammoStill = dir => loadTex(`assets/sprites/frames/${dir}/frame_000.png`);
-  const buildAmmo = tint => goldFrames.map(fr => compositeAmmoFrame(peanutTex.image, tint, extractSparkle(fr).image));
-  const [k10, k50, k100] = await Promise.all([ammoStill('10KPeanut'), ammoStill('50KPeanut'), ammoStill('100KPeanut')]);
-  ammoSets = {
-    '10k':  buildAmmo(dominantColor(k10)),
-    '50k':  buildAmmo(dominantColor(k50)),
-    '100k': buildAmmo(dominantColor(k100)),
-  };
+  // ammo cheat = the existing animated gold / diamond peanut frame sets (no tinting); the
+  // shot animates through them as it flies, just like the healing pickups do.
   const ids = [];
   for (let i = 0; i <= 110; i += 10) ids.push(String(i).padStart(3, '0'));
   burgerFrames = await Promise.all(ids.map(id =>
@@ -1005,7 +947,7 @@ function renderDebug() {
   const el = document.getElementById('debugterm'); if (!el) return;
   el.innerHTML =
     '>:/Peanut Run Debug Menu\n' +
-    '<span class="dim">load   ·   ammo10k  ammo50k  ammo100k   ·   level&lt;1-99&gt;</span>\n' +
+    '<span class="dim">load   ·   ammo   ·   healthy   ·   level&lt;1-99&gt;</span>\n' +
     '>:/' + _escDbg(debugInput) + '<span class="cur">▋</span>' +
     (debugEcho ? '\n<span class="dim">' + _escDbg(debugEcho) + '</span>' : '');
 }
@@ -1021,12 +963,14 @@ function execDebug(raw) {
   if (cmd === 'load') {
     if (level) generateLevel(levelIndex, levelIndex);   // re-anchor the current level (no toast)
     debugEcho = 'Level Regenerated!';
-  } else if (cmd === 'ammo10k' || cmd === 'ammo50k' || cmd === 'ammo100k') {
-    const key = cmd.slice(4);                            // '10k' | '50k' | '100k' — re-typing toggles off
-    if (ammoSets && ammoFrames !== ammoSets[key]) {
-      ammoFrames = ammoSets[key];
-      debugEcho = key === '10k' ? 'Cyan Peanut Shot!' : key === '50k' ? 'Purple Peanut Shot!' : 'Red Peanut Shot!';
-    } else { ammoFrames = null; debugEcho = 'Default Peanut Shot!'; }
+  } else if (cmd === 'ammo') {
+    ammoCheat = (ammoCheat + 1) % 3;                     // default → gold → diamond → default
+    ammoFrames = ammoCheat === 1 ? goldFrames : ammoCheat === 2 ? diamondFrames : null;
+    debugEcho = ammoCheat === 1 ? 'Gold Peanut Shot!' : ammoCheat === 2 ? 'Diamond Peanut Shot!' : 'Default Peanut Shot!';
+  } else if (cmd === 'healthy') {
+    cheatHealthy = !cheatHealthy;                        // 2× veggies + boxes; rebuild to apply
+    if (level) generateLevel(levelIndex, levelIndex);
+    debugEcho = cheatHealthy ? 'Healthy Map Unlocked!' : 'Healthy Map Off';
   } else {
     const m = cmd.match(/^level(\d+)$/);
     if (m && +m[1] >= 100) debugEcho = 'error: Run Your Peanut!';
@@ -2329,7 +2273,8 @@ function generateLevel(n, seedOffset) {
   const bossLevel = n % 5 === 0;
   const bossRush = n === 100;                               // L100 = boss-rush finale
   const doubleBoss = bossRush ? true : (bossLevel && n >= 25 && rng() < 0.5);   // L25+ → 50%; L100 → always
-  const veggieMult = bossRush ? 3 : 1;                      // L100 throws 3× the veggies
+  const veggieMult = (bossRush ? 3 : 1) * (cheatHealthy ? 2 : 1);   // L100 3×; `healthy` cheat 2×
+  const boxMult = cheatHealthy ? 2 : 1;                     // `healthy` cheat doubles crates too
   // grease capacity grows +15 per boss felled to reach this level, capped at +150 (max-grease mode)
   const bossesFelled = Math.min(10, Math.floor((n - 1) / 5));
   const greaseMax = 115 + bossesFelled * 15;
@@ -2567,7 +2512,7 @@ function generateLevel(n, seedOffset) {
     // fry crates — never overlapping each other / the NUTS box, never under a bar (touching edges ok)
     if (cratePick) {
       const placed = [];
-      const count = 2 + ((rng() * 3) | 0);
+      const count = (2 + ((rng() * 3) | 0)) * boxMult;
       for (let c = 0; c < count; c++) {
         const cw = 1.1 + rng() * 0.9, hw = cw / 2;
         let lx = 0, lz = 0, ok = false;
@@ -3019,9 +2964,10 @@ function shoot() {
     dir.y += (Math.random() - 0.5) * 0.025;
     dir.z += (Math.random() - 0.5) * 0.025;
     dir.normalize();
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true }));
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true, depthWrite: false }));
     spr.scale.set(0.32, 0.42, 1);
     spr.material.rotation = Math.random() * Math.PI * 2;
+    spr.renderOrder = 2;        // world-sprite layer; depthWrite off so it can't flicker what's behind it
     spr.position.copy(camera.position).addScaledVector(dir, 0.6);
     spr.position.y -= 0.12;
     scene.add(spr);
@@ -3060,9 +3006,10 @@ function shoot() {
   dir.z += (Math.random() - 0.5) * 0.025;
   dir.normalize();
 
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true }));
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: ammoFrames ? ammoFrames[0] : peanutTex, transparent: true, depthWrite: false }));
   spr.scale.set(0.32, 0.42, 1);
   spr.material.rotation = Math.random() * Math.PI * 2;
+  spr.renderOrder = 2;        // world-sprite layer; depthWrite off so it can't flicker what's behind it
   spr.position.copy(from).addScaledVector(dir, 0.7);
   scene.add(spr);
   projectiles.push({ spr, vel: dir.multiplyScalar(42), life: 1.6, spin: (Math.random() - 0.5) * 14, frames: ammoFrames, frameT: 0 });
