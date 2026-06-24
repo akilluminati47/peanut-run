@@ -2315,6 +2315,9 @@ function generateLevel(n, seedOffset) {
   projectiles = [];
 
   const rng = mulberry32(baseSeed + seedOffset * 7919);
+  // pleasing storefront-face proportions: square / 4:3 / golden — height as a ratio of the
+  // slab width so the buildings read as nice rectangles instead of random lumps
+  const niceRatio = () => [1, 4 / 3, 1.618][(rng() * 3) | 0];
   const group = new THREE.Group();
   const boxes = [];
   const slowZones = [];
@@ -2359,7 +2362,7 @@ function generateLevel(n, seedOffset) {
     let bz = lotZ0;
     while (bz < -0.5) {
       const blen = Math.min(5 + rng() * 7, -bz);
-      const bh = 4.5 + rng() * 4.5;
+      const bh = clamp(blen * niceRatio(), 4, 10);   // square / 4:3 / golden storefront face
       addBox(group, boxes, side * (LOT_HALF + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen,
         buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen));
       if (rng() < 0.4) {
@@ -2404,9 +2407,9 @@ function generateLevel(n, seedOffset) {
     const si = baySlots.indexOf(avail[(rng() * avail.length) | 0]);
     usedSlots.add(si);
     const s = baySlots[si];
-    // headlights (car front, local -z) point toward the peanut on the RIGHT bays (+x → face +z,
-    // toward the spawn) and the other way on the LEFT bays (-x → face -z)
-    let carYaw = s.x > 0 ? Math.PI : 0;
+    // headlights (car front, local -z) point toward the peanut on the RIGHT bays (+x) and
+    // the other way on the LEFT bays (flipped per the latest direction)
+    let carYaw = s.x > 0 ? 0 : Math.PI;
     if (rng() < 0.2) carYaw += (rng() < 0.5 ? -1 : 1) * (0.10 + rng() * 0.08);   // small park jitter
     const info = buildCar(group, boxes, s.x, s.z, CAR_COLORS[(rng() * CAR_COLORS.length) | 0], rng, carYaw, {
       allowDonk: donkAllowedLevel && !donkUsed,
@@ -2436,9 +2439,11 @@ function generateLevel(n, seedOffset) {
     x: cx + lz * Math.sin(theta) + lx * Math.cos(theta),
     z: cz + lz * Math.cos(theta) - lx * Math.sin(theta),
   });
-  // a box rotated to the heading: yawed mesh + collision (AABB bound for the Y/broad phase,
-  // plus a `cobb` so the angled XZ footprint resolves exactly). floors skip the cobb (their
-  // top stays at y=0 under any yaw); walls are flagged so you never stand on / bonk them.
+  // a box at the current heading: mesh + collision. The collision Box3 is the broad-phase
+  // AABB; ONLY when actually turned (theta≠0) does it also carry a `cobb` so the angled
+  // footprint resolves exactly. On a straight run (theta=0) the box is axis-aligned, so we
+  // leave the cobb off and let resolveEntity's robust X/Z sweeps block it — the cobb path
+  // (single-pass pushOut) is what was popping the player up onto crates/obstacles.
   function yawBox(lx, y, lz, w_, hh, d, mat, opt = {}) {
     const p = toWorld(lx, lz);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w_, hh, d), mat);
@@ -2448,7 +2453,10 @@ function generateLevel(n, seedOffset) {
       const ca = Math.abs(Math.cos(theta)), sa = Math.abs(Math.sin(theta));
       const hx = (w_ / 2) * ca + (d / 2) * sa, hz = (w_ / 2) * sa + (d / 2) * ca;
       const box = new THREE.Box3(new THREE.Vector3(p.x - hx, y, p.z - hz), new THREE.Vector3(p.x + hx, y + hh, p.z + hz));
-      if (!opt.floor) { box.cobb = { cx: p.x, cz: p.z, ry: theta, hx: w_ / 2, hz: d / 2 }; if (opt.wall) box.wall = true; }
+      if (!opt.floor) {
+        if (Math.abs(theta) > 1e-6) box.cobb = { cx: p.x, cz: p.z, ry: theta, hx: w_ / 2, hz: d / 2 };
+        if (opt.wall) box.wall = true;
+      }
       boxes.push(box);
     }
     return mesh;
@@ -2493,7 +2501,7 @@ function generateLevel(n, seedOffset) {
         const remaining = len - bz;
         const blen = remaining < 2 * MIN_WALL ? remaining
                                               : Math.min(MIN_WALL + rng() * MIN_WALL, remaining - MIN_WALL);
-        const bh = 4 + rng() * 5.5;
+        const bh = clamp(blen * niceRatio(), 4, 11);   // square / 4:3 / golden storefront face
         yawBox(side * (half + WALL_T / 2), 0, bz + blen / 2, WALL_T, bh, blen, buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen), { wall: true });
         if (rng() < 0.4) {
           const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
@@ -2549,7 +2557,8 @@ function generateLevel(n, seedOffset) {
       nm.position.set(np.x, 0.6, np.z); nm.rotation.y = theta; nm.castShadow = true; nm.receiveShadow = true; group.add(nm);
       const ca = Math.abs(Math.cos(theta)), sa = Math.abs(Math.sin(theta));
       const nb = new THREE.Box3(new THREE.Vector3(np.x - (ca + 0.8 * sa), 0, np.z - (sa + 0.8 * ca)), new THREE.Vector3(np.x + (ca + 0.8 * sa), 1.2, np.z + (sa + 0.8 * ca)));
-      nb.cobb = { cx: np.x, cz: np.z, ry: theta, hx: 1.0, hz: 0.8 }; boxes.push(nb);
+      if (Math.abs(theta) > 1e-6) nb.cobb = { cx: np.x, cz: np.z, ry: theta, hx: 1.0, hz: 0.8 };
+      boxes.push(nb);
       pickups.push(makePickup(group, np.x, 2.1, np.z, pkType));
       danceSpots.push({ x: np.x, z: np.z, r: 2.5, ground: false, type: 'gold', used: false });
       nutsFoot = { lx: nlx, lz: nlz, hw: 1.2 };
@@ -2569,7 +2578,7 @@ function generateLevel(n, seedOffset) {
           if (ok) for (const o of placed) if (Math.abs(lx - o.lx) < hw + o.hw - 0.06 && Math.abs(lz - o.lz) < hw + o.hw - 0.06) { ok = false; break; }
         }
         if (!ok) continue;
-        yawBox(lx, 0, lz, cw, 0.9 + rng() * 0.8, cw, rng() < 0.5 ? beefCrateMat : crateMat);
+        yawBox(lx, 0, lz, cw, cw * (rng() < 0.5 ? 1 : 0.75), cw, rng() < 0.5 ? beefCrateMat : crateMat);  // cube or 4:3 box
         placed.push({ lx, lz, hw });
       }
     }
