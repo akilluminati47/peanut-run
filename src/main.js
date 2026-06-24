@@ -2498,15 +2498,15 @@ function generateLevel(n, seedOffset) {
     let obstacleZ = null, cratePick = false;
     const segCenterZ = cz + len / 2;
     if (!isEnd && i > 0 && segCenterZ >= 0.2 * totalLen && segCenterZ <= 0.9 * totalLen) {
-      // an occasional full-width bar to jump/slide, THEN crates in every in-zone segment so the
-      // run stays populated (not scarce) — the crates dodge the bar's lane
+      // a full-width bar to jump/slide on ~60% of in-zone segments, AND crates in every one, so
+      // both bars and crates stay common (not scarce) — the crates dodge the bar's lane
       const pick = rng();
-      if (pick < 0.18) {
+      if (pick < 0.3) {
         const m = yawBox(0, 0, len / 2, half * 2, 1.05, 0.9, counterMatFor(half * 2));
         obstacles.push({ type: 'jump', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
         if (n <= 5) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: jumpSignTex, transparent: true, side: THREE.DoubleSide })); const sp = toWorld(0, len / 2 - 0.6); sign.position.set(sp.x, 3.1, sp.z); sign.rotation.y = theta + Math.PI; group.add(sign); }
-      } else if (pick < 0.36) {
+      } else if (pick < 0.6) {
         const m = yawBox(0, 1.0, len / 2, half * 2, 1.6, 0.9, slideBarMatFor(half * 2));
         obstacles.push({ type: 'slide', mesh: m, box: boxes[boxes.length - 1] });
         obstacleZ = len / 2;
