@@ -696,7 +696,7 @@ const PLAYER = {
   bobT: 0,
 };
 
-const WALK = 7.0, SPRINT = 13.5, JUMP_V = 8.6, GRAV = -23;
+const WALK = 7.0, SPRINT = 13.5, NOSTAM_RUN = WALK * 1.35, JUMP_V = 8.6, GRAV = -23;
 const SLIDE_TIME = 0.85, SLIDE_SPEED = 16.5, SLIDE_HEIGHT = 0.7;
 const JUMP_COST = 4.5;
 const CROUCH_SPEED = WALK * 0.67, CROUCH_HEIGHT = 1.05, CROUCH_TAP = 0.16;
@@ -2661,7 +2661,6 @@ function generateLevel(n, seedOffset) {
   PLAYER.hp = clamp(Math.max(3, PLAYER.hp), 3, MAX_HP); PLAYER.inv = 0;
   PLAYER.greaseMax = greaseMax;
   PLAYER.sprint = greaseMax;                 // start each level topped up to capacity
-  PLAYER.exhausted = false;
   PLAYER.sliding = false; PLAYER.curHeight = PLAYER.height;
   PLAYER.crouching = false; PLAYER.calmT = 0; PLAYER.rechargeMult = 1;
   PLAYER.danceCount = 0; PLAYER.danceSpot = null; PLAYER._wasCrouching = false;
@@ -3515,17 +3514,16 @@ function updatePlayer(dt) {
     // frozen: no drain, no recharge — preserves meter during sprint→slide
     PLAYER.sprinting = wantSprint && PLAYER.sprint > 0 && moving;
   } else {
-    // hysteresis: once the meter bottoms out you can't sprint again until it recovers a bit.
-    // Without this, holding sprint at 0 grease flips sprinting on/off EVERY frame (recharge a
-    // sliver → sprint → drain to 0 → repeat), which jittered the speed + FOV — the stutter.
-    if (PLAYER.sprint <= 0) PLAYER.exhausted = true;
-    else if (PLAYER.sprint > 15) PLAYER.exhausted = false;
-    PLAYER.sprinting = wantSprint && !PLAYER.exhausted && PLAYER.sprint > 0 && moving;
-    if (PLAYER.sprinting) {
+    const holdingRun = wantSprint && moving;
+    PLAYER.sprinting = holdingRun && PLAYER.sprint > 0;
+    if (PLAYER.sprinting) {                 // grease in the tank → full sprint, drains
       speed = SPRINT;
       PLAYER.sprint = Math.max(0, PLAYER.sprint - (PLAYER.greaseMax >= 250 && levelIndex >= 50 ? 16 : 24) * dt);
       PLAYER.calmT = 0;
-    } else {
+    } else if (holdingRun) {                // out of grease but still holding run → the no-stamina jog
+      speed = NOSTAM_RUN;                   // no drain; regen is BLOCKED while the run key is held, so
+      PLAYER.calmT = 0;                      // the meter just sits at 0 instead of flickering (the stutter)
+    } else {                               // not running → recharge at the walk / stop / crouch rate
       PLAYER.calmT += dt;
       let target = (moving && !PLAYER.crouching) ? RECHARGE_WALK : RECHARGE_CALM;
       if (target > RECHARGE_WALK) target = lerp(RECHARGE_WALK, RECHARGE_CALM, clamp(PLAYER.calmT / RECHARGE_RAMP, 0, 1));
