@@ -474,7 +474,8 @@
     #mhealth{bottom:170px;}
     #bossname{font-size:13px;letter-spacing:0.5px;}
     #bosshpwrap{height:16px;}
-    #thint{font-size:9px;white-space:normal;width:90%;text-align:center;}
+    /* one line, never wraps into the thumbs: scales down on the narrowest phones */
+    #thint{font-size:clamp(6px,1.95vw,8px);white-space:nowrap;width:auto;text-align:center;}
   }
 
   /* ===== mobile HUD scaling: shrink the whole top row to desktop-size, keep info
@@ -577,6 +578,13 @@
     body.touch #kills{right:24px;}
     body.touch #mhealth{bottom:6px;right:24px;left:auto;transform:none;}
     body.touch #tmove{left:40px;}
+    /* boss bar: slim strip, sat below the centered timer so it never spans the device */
+    body.touch #bossbar{top:54px;width:min(280px,38vw);}
+    body.touch #bossname{font-size:11px;letter-spacing:.5px;margin-bottom:2px;}
+    body.touch #bossname::before,body.touch #bossname::after{margin:0 4px;}
+    /* radii matched to the track so the green fills flush to both ends (no end-gap) */
+    body.touch #bosshpwrap{height:12px;border-width:2px;border-radius:8px;}
+    body.touch #bosshp{border-radius:6px;}
   }
 
   /* SHORT (phone) landscape: little vertical room — hide PAUSED + CHECK PLEASE and
