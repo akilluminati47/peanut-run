@@ -156,6 +156,9 @@ const EMOJI_SVG = {
   '🥔': 'assets/sprites/emoji/potato.svg',
   '🥑': 'assets/sprites/emoji/avocado.svg',
   '🌰': 'assets/sprites/emoji/chestnut.svg',
+  '🫚': 'assets/sprites/emoji/gingerroot.svg',
+  '🥗': 'assets/sprites/emoji/salad.svg',
+  '🌿': 'assets/sprites/emoji/herb.svg',
   '🍔': 'assets/sprites/emoji/burger.svg',
   '🍟': 'assets/sprites/emoji/fries.svg',
   '🥤': 'assets/sprites/emoji/cup.svg',
@@ -345,75 +348,9 @@ const slideBarTex = canvasTexture(512, (ctx, s) => {
   ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(0, s - 16, s, 16); // kick strip
 }, true);
 
-// white cauliflower head for the CAULIBLORB boss (drawn — no white veg emoji)
-const cauliflowerTex = canvasTexture(256, (ctx, s) => {
-  ctx.clearRect(0, 0, s, s);
-  const cx = s * 0.5, cy = s * 0.46;
-  ctx.fillStyle = '#7da050';                                   // pale-green leaves behind
-  for (let i = 0; i < 7; i++) {
-    const a = Math.PI + i * (Math.PI / 6);
-    ctx.save(); ctx.translate(cx, cy + s * 0.16); ctx.rotate(a);
-    ctx.beginPath(); ctx.ellipse(0, -s * 0.2, s * 0.09, s * 0.2, 0, 0, 7); ctx.fill(); ctx.restore();
-  }
-  // bumpy white floret cluster
-  for (let i = 0; i < 90; i++) {
-    const ang = Math.random() * Math.PI * 2, rad = Math.random() ** 0.5 * s * 0.32;
-    const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad * 0.92;
-    const r = s * (0.05 + Math.random() * 0.045);
-    const sh = 236 + Math.floor(Math.random() * 18);
-    ctx.fillStyle = `rgb(${sh},${sh},${sh - 12})`;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-  }
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';                     // top sheen
-  for (let i = 0; i < 25; i++) {
-    const ang = Math.random() * Math.PI * 2, rad = Math.random() * s * 0.28;
-    ctx.beginPath(); ctx.arc(cx + Math.cos(ang) * rad, cy - s * 0.06 + Math.sin(ang) * rad * 0.6, s * 0.018, 0, 7); ctx.fill();
-  }
-});
-
-// turnip — pink crown, white root, clean oval body, 3 leaf shoots, single shine
-const turnipTex = canvasTexture(256, (ctx, s) => {
-  ctx.clearRect(0, 0, s, s);
-  const cx = s * 0.5;
-  const topY = s * 0.25;         // body-top — leaves attach here
-  const cy = s * 0.53;           // body centre
-  const bodyW = s * 0.32;        // half-width (wide oval)
-  const bodyH = s * 0.28;        // half-height
-
-  // three leaf shoots puffing straight out to the right
-  ctx.fillStyle = '#7da050';
-  for (const ang of [-0.55, 0, 0.55]) {
-    ctx.save(); ctx.translate(cx, topY); ctx.rotate(ang + Math.PI * 0.05);
-    ctx.beginPath(); ctx.ellipse(0, -s * 0.10, s * 0.04, s * 0.13, 0, 0, 7); ctx.fill();
-    ctx.restore();
-  }
-
-  // clean oval body — single smooth gradient, no rim stroke
-  const grad = ctx.createLinearGradient(cx, cy - bodyH, cx, cy + bodyH);
-  grad.addColorStop(0, '#e870a0');     // pink crown
-  grad.addColorStop(0.28, '#d4508a');  // deeper pink
-  grad.addColorStop(0.48, '#c490b8');  // subtle purple transition
-  grad.addColorStop(0.65, '#e8d8d0');  // cream
-  grad.addColorStop(1, '#faf5f0');     // white base
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, bodyW, bodyH, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // one skinny root from the bottom
-  const rootY = cy + bodyH * 0.90;
-  ctx.strokeStyle = '#e8d8d0'; ctx.lineWidth = s * 0.022; ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(cx, rootY);
-  ctx.quadraticCurveTo(cx - s * 0.01, rootY + s * 0.09, cx - s * 0.005, rootY + s * 0.15);
-  ctx.stroke();
-
-  // single large highlight — upper-left crown
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.beginPath();
-  ctx.ellipse(cx - s * 0.10, cy - bodyH * 0.50, s * 0.14, s * 0.09, -0.35, 0, 7);
-  ctx.fill();
-});
+// (The hand-drawn cauliflower + turnip textures were retired in favour of Fluent
+//  emoji veggies — ginger root, green salad, herb. Their code is backed up at
+//  Desktop/peanut-custom-veggies-backup.js if they're ever wanted again.)
 
 const ketchupTex = canvasTexture(256, (ctx, s) => {
   ctx.clearRect(0, 0, s, s);
@@ -1831,7 +1768,7 @@ const VEGGIES = [
   { emoji: '🌽', name: 'corn', hp: 2, speed: 4.3, scale: 1.1, r: 0.48, tier: 3 },
   { emoji: '🫑', name: 'pepper', hp: 2, speed: 4.9, scale: 1.05, r: 0.48, tier: 4 },
   { emoji: '🥦', name: 'broccoli', hp: 3, speed: 2.7, scale: 1.35, r: 0.58, tier: 5 },
-  { emoji: 'turnip', name: 'turnip', hp: 2, speed: 4.2, scale: 1.15, r: 0.52, tex: turnipTex, tier: 5 },
+  { emoji: '🫚', name: 'ginger', hp: 2, speed: 4.2, scale: 1.15, r: 0.52, tier: 5 },
   { emoji: '🧅', name: 'onion', hp: 2, speed: 3.8, scale: 1.20, r: 0.55, tier: 4 },
   { emoji: '🍆', name: 'eggplant', hp: 1, speed: 3.5, scale: 1.2, r: 0.50, tier: 2 },
   { emoji: '🥬', name: 'kale',     hp: 1, speed: 3.0, scale: 1.1, r: 0.45, tier: 2 },
@@ -1847,17 +1784,34 @@ const VEGGIES = [
   { emoji: '🥔', name: 'potato',      hp: 3, speed: 3.3, scale: 1.30, r: 0.56, tier: 5 },   // tank
   { emoji: '🥑', name: 'avocado',     hp: 3, speed: 3.0, scale: 1.32, r: 0.57, tier: 6 },   // tank (the pit)
   { emoji: '🌰', name: 'chestnut',    hp: 4, speed: 2.6, scale: 1.20, r: 0.54, tier: 6 },   // armored bruiser
+  { emoji: '🥗', name: 'salad',       hp: 2, speed: 4.3, scale: 1.10, r: 0.50, tier: 4 },   // (replaces cauliflower)
+  { emoji: '🌿', name: 'herb',        hp: 1, speed: 5.4, scale: 0.90, r: 0.42, tier: 3 },   // fast leafy swarmer
 ];
 const MAX_VEGGIE_TIER = Math.max(...VEGGIES.map(v => v.tier));
 // boss pools: each type has 1-2 names (50% chance each), may link to a small veggie variant
+// Each boss shows a big veggie and, at the level end, spawns minions = VEGGIES[veggieIdx].
+// (veggieIdx must stay a valid index into VEGGIES above.)
 const BOSS_POOLS = [
-  { type: 'cauliflower', emoji: '🥦', tex: cauliflowerTex, names: ['CAULIBLORB THE DENSE'], veggieIdx: 4 },
-  { type: 'turnip',      emoji: 'turnip', tex: turnipTex,  names: ['TURNIPUS PRIME', 'ROOT OF ALL EVIL'], veggieIdx: 5 },
-  { type: 'onion',       emoji: '🧅',     tex: null,       names: ['OBTUSE ONION', 'CRY BABY ONION'], veggieIdx: 6 },
-  { type: 'pepper',      emoji: '🫑',     tex: null,       names: ['PEPPER PULVERIZER', 'CAPSICUM CRUSHER'], veggieIdx: 3 },
-  { type: 'eggplant',    emoji: '🍆',     tex: null,       names: ['EGGPLANT OVERLORD'], veggieIdx: 7 },
-  { type: 'kale',        emoji: '🥬',     tex: null,       names: ['KALE COMMANDER', 'LEAF ME ALONE'], veggieIdx: 8 },
-  { type: 'cucumber',    emoji: '🥒',     tex: null,       names: ['THE GIGACUKE'], veggieIdx: 9 },
+  // leafy / greens
+  { type: 'broccoli',    emoji: '🥦', tex: null, names: ['BROCCOZILLA', 'THE GREEN GIANT'],        veggieIdx: 4 },
+  { type: 'salad',       emoji: '🥗', tex: null, names: ['THE TOSSED TITAN', 'SALAD SHOOTER'],     veggieIdx: 20 },
+  { type: 'kale',        emoji: '🥬', tex: null, names: ['KALE COMMANDER', 'LEAF ME ALONE'],       veggieIdx: 8 },
+  { type: 'herb',        emoji: '🌿', tex: null, names: ['THE HERBALIST', 'PARSLEY MASSACRE'],     veggieIdx: 21 },
+  // roots & bulbs
+  { type: 'ginger',      emoji: '🫚', tex: null, names: ['GINGERNAUT', 'ROOT OF ALL EVIL'],        veggieIdx: 5 },
+  { type: 'onion',       emoji: '🧅', tex: null, names: ['OBTUSE ONION', 'CRY BABY ONION'],        veggieIdx: 6 },
+  { type: 'potato',      emoji: '🥔', tex: null, names: ['SPUDZILLA', 'THE COUCH POTATO'],         veggieIdx: 17 },
+  { type: 'sweetpotato', emoji: '🍠', tex: null, names: ['YAMMOTH', 'SWEET DOOM'],                 veggieIdx: 15 },
+  // nightshades & spice
+  { type: 'pepper',      emoji: '🫑', tex: null, names: ['PEPPER PULVERIZER', 'CAPSICUM CRUSHER'], veggieIdx: 3 },
+  { type: 'hotpepper',   emoji: '🌶️', tex: null, names: ['EL DIABLO', 'THE SCOVILLE KING'],        veggieIdx: 14 },
+  { type: 'eggplant',    emoji: '🍆', tex: null, names: ['EGGPLANT OVERLORD', 'THE AUBERGINE'],    veggieIdx: 7 },
+  // tanks & oddballs
+  { type: 'avocado',     emoji: '🥑', tex: null, names: ['THE AVOCALYPSE', 'GUAC GOLIATH'],        veggieIdx: 18 },
+  { type: 'chestnut',    emoji: '🌰', tex: null, names: ['THE NUTCRACKER', 'OLD CHESTNUT'],        veggieIdx: 19 },
+  { type: 'mushroom',    emoji: '🍄', tex: null, names: ['SHROOMZILLA', 'THE FUNGAL LORD'],        veggieIdx: 13 },
+  { type: 'peapod',      emoji: '🫛', tex: null, names: ['THE PODFATHER', 'SPLITSVILLE'],          veggieIdx: 16 },
+  { type: 'cucumber',    emoji: '🥒', tex: null, names: ['THE GIGACUKE', 'COOL HAND CUKE'],        veggieIdx: 9 },
 ];
 const veggieTextures = {};
 const DECOR_EMOJI = ['🍔', '🍟', '🥤', '🌭', '🍕', '🧂'];
