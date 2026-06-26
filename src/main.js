@@ -2799,6 +2799,7 @@ const pMat = new THREE.PointsMaterial({
 });
 const pPoints = new THREE.Points(pGeo, pMat);
 pPoints.frustumCulled = false;
+pPoints.renderOrder = 1.5;   // above the ground/puddle layer (1) so puddles can't clip over bursts, still below world sprites (2)
 scene.add(pPoints);
 
 const particles = []; // {x,y,z,vx,vy,vz,life,maxLife,r,g,b,drag,grav}
