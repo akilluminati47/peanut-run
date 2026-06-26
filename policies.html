@@ -160,37 +160,50 @@
 
 <div class="checker bottom"></div>
 
-<!-- same gorgeous kitchen-glove pointer as the game (static CSS cursor; sparkle variant on links) -->
+<!-- the peanut pointer (same as the game): small, angled like the Windows arrow;
+     turns gold, pulses and sparkles over links -->
 <script>
 (function () {
-  var INK = '#3a2412';
-  var SP = 'M28 1.4 C28.7 4.5 29.5 5.3 32.6 6 C29.5 6.7 28.7 7.5 28 10.6 C27.3 7.5 26.5 6.7 23.4 6 C26.5 5.3 27.3 4.5 28 1.4 Z';
-  function core() {
-    return '<defs>'
-      + '<linearGradient id="gB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f0e2c6"/></linearGradient>'
-      + '<linearGradient id="gC" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4326"/><stop offset="1" stop-color="#b11c05"/></linearGradient>'
-      + '</defs>'
-      + '<g stroke="' + INK + '" stroke-width="2.4" stroke-linejoin="round">'
-      + '<rect x="22" y="21.5" width="8.5" height="12" rx="4.2" fill="url(#gB)"/>'
-      + '<rect x="28.3" y="20.5" width="8.5" height="12" rx="4.2" fill="url(#gB)"/>'
-      + '<rect x="34.3" y="22.5" width="7.5" height="11.5" rx="3.6" fill="url(#gB)"/>'
-      + '<rect x="9" y="24" width="30" height="22" rx="12" fill="url(#gB)"/>'
-      + '<rect x="10.5" y="42.5" width="29" height="11.6" rx="5" fill="url(#gC)"/>'
-      + '<rect x="3" y="26" width="12" height="11" rx="5.5" transform="rotate(-16 9 31)" fill="url(#gB)"/>'
-      + '<rect x="11.5" y="3" width="9" height="25" rx="4.5" fill="url(#gB)"/>'
-      + '</g>'
-      + '<path d="M14 48.3 h22" fill="none" stroke="#ffc62e" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2 2.4" opacity=".9"/>'
-      + '<g fill="#ffffff" opacity=".6" stroke="none"><rect x="13.3" y="5.6" width="3.2" height="13" rx="1.6"/><ellipse cx="17" cy="30.5" rx="5" ry="2.5" transform="rotate(-28 17 30.5)"/></g>';
+  if (!matchMedia('(hover:hover)').matches) return;   // touch devices keep the native cursor
+  var SRC = 'assets/sprites/emotes/Peanut.png';
+  var SPARK = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M5 0C5.4 3.4 6.6 4.6 10 5 6.6 5.4 5.4 6.6 5 10 4.6 6.6 3.4 5.4 0 5 3.4 4.6 4.6 3.4 5 0Z' fill='%23ffe07a'/%3E%3C/svg%3E\") center/contain no-repeat";
+  var css = ''
+    + 'html,body,a,button,.back-link,[role=button]{cursor:none!important}'
+    + '#pncursor{position:fixed;left:0;top:0;width:30px;height:30px;z-index:9999;pointer-events:none;opacity:0;'
+    +   'transform-origin:10px 4px;transition:transform .14s cubic-bezier(.34,1.56,.64,1),opacity .2s ease}'
+    + '#pncursor .pn-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;'
+    +   'transform:rotate(-26deg);transform-origin:center;'
+    +   'filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.55)) drop-shadow(0 0 3px rgba(255,180,40,.35));'
+    +   'transition:filter .18s ease,transform .12s ease;-webkit-user-drag:none}'
+    + '#pncursor.hover{animation:pnPulse 1.05s ease-in-out infinite}'
+    + '#pncursor.hover .pn-img{filter:drop-shadow(0 1px 2px rgba(0,0,0,.5)) drop-shadow(0 0 8px rgba(255,200,46,.95)) sepia(.75) saturate(3.6) hue-rotate(-12deg) brightness(1.12)}'
+    + '@keyframes pnPulse{0%,100%{transform:scale(1.16)}50%{transform:scale(1.46)}}'
+    + '#pncursor.press{transform:scale(1.12)}#pncursor.press .pn-img{transform:rotate(-26deg) scale(.84)}'
+    + '#pncursor .pn-spark{position:absolute;width:8px;height:8px;opacity:0;background:' + SPARK + '}'
+    + '#pncursor.hover .pn-spark{animation:pnSpark 1s ease-in-out infinite}'
+    + '#pncursor .pn-spark.s1{left:-3px;top:-3px}'
+    + '#pncursor .pn-spark.s2{right:-2px;top:6px;width:6px;height:6px;animation-delay:.34s}'
+    + '#pncursor .pn-spark.s3{left:5px;bottom:-3px;width:6px;height:6px;animation-delay:.66s}'
+    + '@keyframes pnSpark{0%,100%{opacity:0;transform:scale(.3) rotate(0)}50%{opacity:1;transform:scale(1) rotate(45deg)}}';
+  var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+  var c = document.createElement('div'); c.id = 'pncursor';
+  c.innerHTML = '<img class="pn-img" src="' + SRC + '" alt="" draggable="false">'
+    + '<i class="pn-spark s1"></i><i class="pn-spark s2"></i><i class="pn-spark s3"></i>';
+  document.body.appendChild(c);
+  var SEL = 'a,button,.back-link,[role=button]';
+  function move(e) {
+    c.style.opacity = '1';
+    c.style.left = (e.clientX - 10) + 'px';
+    c.style.top = (e.clientY - 4) + 'px';
+    if (!c.classList.contains('press')) {
+      var t = e.target && e.target.closest ? e.target.closest(SEL) : null;
+      c.classList.toggle('hover', !!t);
+    }
   }
-  function svg(state) {
-    var ex = state === 'hover' ? '<path d="' + SP + '" fill="#ffd75e" stroke="#ffb300" stroke-width=".6"/>' : '';
-    return '<svg xmlns="http://www.w3.org/2000/svg" width="46" height="56" viewBox="0 0 46 56">' + core() + ex + '</svg>';
-  }
-  function cur(state) { return 'url("data:image/svg+xml,' + encodeURIComponent(svg(state)) + '") 16 3'; }
-  var st = document.createElement('style');
-  st.textContent = 'html,body{cursor:' + cur('open') + ',auto}'
-    + 'a,button,.back-link,[role=button]{cursor:' + cur('hover') + ',pointer}';
-  document.head.appendChild(st);
+  window.addEventListener('mousemove', move, { passive: true });
+  window.addEventListener('mousedown', function () { c.classList.add('press'); c.classList.remove('hover'); });
+  window.addEventListener('mouseup', function (e) { c.classList.remove('press'); move(e); });
+  document.addEventListener('mouseleave', function () { c.style.opacity = '0'; });
 })();
 </script>
 </body>

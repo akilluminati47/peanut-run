@@ -87,6 +87,11 @@ const AudioFX = {
   heal() {
     [659, 988].forEach((f, i) => setTimeout(() => this.blip(f, 0.18, 'sine', 0.09), i * 80));
   },
+  // the cursor's "voice": a soft DESCENDING remix of the gold-peanut pickup chime (heal),
+  // i.e. the opposite pitch direction to the rising level-select bloops. Fires on hover.
+  cursorChirp() {
+    [988, 659].forEach((f, i) => setTimeout(() => this.blip(f, 0.085, 'sine', 0.045), i * 42));
+  },
   healBig() {
     [659, 880, 1175, 1568].forEach((f, i) => setTimeout(() => this.blip(f, 0.22, 'triangle', 0.09), i * 75));
     setTimeout(() => this.noise(0.25, 0.05, 6000), 120);   // sparkle shimmer
@@ -1106,57 +1111,20 @@ document.addEventListener('mousemove', e => {
 
 /* ============================ gamepad + glove cursor ============================ */
 
-// Gorgeous cartoon "kitchen glove" pointer, built as one crisp inline SVG.
-// It points with a single index finger whose TIP is the hotspot, at local (16,3) —
-// so what you're reaching is never ambiguous. Every animation (hover grow, press
-// squish, ring, sparkle) is anchored at that tip, so the point never drifts.
-const GLOVE_INK = '#3a2412';
-const GLOVE_SPARKLE_D = 'M28 1.4 C28.7 4.5 29.5 5.3 32.6 6 C29.5 6.7 28.7 7.5 28 10.6 C27.3 7.5 26.5 6.7 23.4 6 C26.5 5.3 27.3 4.5 28 1.4 Z';
-function gloveCore() {
-  return ''
-    + '<defs>'
-    +   '<linearGradient id="gBody" x1="0" y1="0" x2="1" y2="1">'
-    +     '<stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f0e2c6"/></linearGradient>'
-    +   '<linearGradient id="gCuff" x1="0" y1="0" x2="0" y2="1">'
-    +     '<stop offset="0" stop-color="#ff4326"/><stop offset="1" stop-color="#b11c05"/></linearGradient>'
-    + '</defs>'
-    + '<g stroke="' + GLOVE_INK + '" stroke-width="2.4" stroke-linejoin="round">'
-    +   '<rect x="22" y="21.5" width="8.5" height="12" rx="4.2" fill="url(#gBody)"/>'            // curled fingers (knuckles)
-    +   '<rect x="28.3" y="20.5" width="8.5" height="12" rx="4.2" fill="url(#gBody)"/>'
-    +   '<rect x="34.3" y="22.5" width="7.5" height="11.5" rx="3.6" fill="url(#gBody)"/>'
-    +   '<rect x="9" y="24" width="30" height="22" rx="12" fill="url(#gBody)"/>'                 // palm / fist
-    +   '<rect x="10.5" y="42.5" width="29" height="11.6" rx="5" fill="url(#gCuff)"/>'           // ketchup cuff
-    +   '<rect x="3" y="26" width="12" height="11" rx="5.5" transform="rotate(-16 9 31)" fill="url(#gBody)"/>'  // thumb
-    +   '<rect x="11.5" y="3" width="9" height="25" rx="4.5" fill="url(#gBody)"/>'               // index finger (the pointer)
-    + '</g>'
-    + '<path d="M14 48.3 h22" fill="none" stroke="#ffc62e" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2 2.4" opacity=".9"/>'  // mustard stitch
-    + '<g fill="#ffffff" opacity=".6" stroke="none">'                                            // glossy highlights
-    +   '<rect x="13.3" y="5.6" width="3.2" height="13" rx="1.6"/>'
-    +   '<ellipse cx="17" cy="30.5" rx="5" ry="2.5" transform="rotate(-28 17 30.5)"/>'
-    + '</g>';
-}
-function gloveSVG(state, animated) {
-  let extra = '';
-  if (animated) {
-    extra = '<circle class="g-ring" cx="16" cy="3" r="6" fill="none" stroke="#ffc62e" stroke-width="2"/>'
-          + '<path class="g-sparkle" d="' + GLOVE_SPARKLE_D + '" fill="#ffd75e" stroke="#ffb300" stroke-width=".6"/>';
-  } else if (state === 'hover') {
-    extra = '<path d="' + GLOVE_SPARKLE_D + '" fill="#ffd75e" stroke="#ffb300" stroke-width=".6"/>';
-  } else if (state === 'press') {
-    extra = '<circle cx="16" cy="3" r="7.5" fill="none" stroke="#ffc62e" stroke-width="2" opacity=".7"/>';
-  }
-  const ov = animated ? ' overflow="visible"' : '';
-  return '<svg xmlns="http://www.w3.org/2000/svg" width="46" height="56" viewBox="0 0 46 56"' + ov + '>' + gloveCore() + extra + '</svg>';
-}
-function gloveCursor(state) { return 'data:image/svg+xml,' + encodeURIComponent(gloveSVG(state, false)); }
-const GLOVE_URL = gloveCursor('open');
-const GLOVE_HOVER_URL = gloveCursor('hover');
-const GLOVE_PRESS_URL = gloveCursor('press');
-document.documentElement.style.setProperty('--glove', 'url("' + GLOVE_URL + '") 16 3, pointer');
-document.documentElement.style.setProperty('--glove-hover', 'url("' + GLOVE_HOVER_URL + '") 16 3, pointer');
-document.documentElement.style.setProperty('--glove-press', 'url("' + GLOVE_PRESS_URL + '") 16 3, pointer');
+// The pointer IS the peanut sprite — small, angled like the Windows arrow. Idle is a
+// plain peanut; over a clickable it pulses bigger, turns golden and sparkles (a nod to
+// the golden-peanut pickups). All states are driven by the .hover/.press CSS classes.
+const PEANUT_CURSOR_SRC = 'assets/sprites/emotes/Peanut.png';
 const gloveEl = document.getElementById('glove');
-if (gloveEl) gloveEl.innerHTML = gloveSVG('open', true);   // one inline SVG; states are driven by CSS classes
+if (gloveEl) {
+  gloveEl.innerHTML =
+    '<img class="pn-img" src="' + PEANUT_CURSOR_SRC + '" alt="" draggable="false">'
+    + '<i class="pn-spark s1"></i><i class="pn-spark s2"></i><i class="pn-spark s3"></i>';
+}
+// kept so the ?test&gloves preview still works
+const GLOVE_URL = PEANUT_CURSOR_SRC;
+const GLOVE_HOVER_URL = 'assets/sprites/frames/GoldenPeanut/frame_016.png';
+const GLOVE_PRESS_URL = PEANUT_CURSOR_SRC;
 
 let inputMode = 'kbm';   // 'kbm' | 'gamepad' | 'touch'
 let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
@@ -1226,6 +1194,8 @@ window.addEventListener('keydown', () => setInputMode('kbm'));
 let gpHoverEl = null;       // element the (gamepad) glove is currently hovering
 let gloveIdleT = 0;         // seconds since the cursor last moved (fades the glove out)
 let _gloveWake = false;     // a mouse move / swipe this frame — wake & reposition the glove
+let _cursorHoverEl = null;  // last clickable the peanut cursor hovered (chirp on hover-enter)
+let _cursorHoverSfxT = 0;   // ms timestamp of the last hover chirp (debounce)
 
 const MENU_STATES = ['menu', 'complete', 'dead', 'paused'];
 
@@ -1502,8 +1472,8 @@ function updateMenuCursor(dt) {
     cursorX = clamp(cursorX + mx * sp * dt, 4, window.innerWidth - 4);
     cursorY = clamp(cursorY + my * sp * dt, 4, window.innerHeight - 4);
   }
-  gloveEl.style.left = (cursorX - 16) + 'px';   // fingertip hotspot is at local (16,3)
-  gloveEl.style.top = (cursorY - 3) + 'px';
+  gloveEl.style.left = (cursorX - 10) + 'px';   // peanut tip hotspot at local (10,4)
+  gloveEl.style.top = (cursorY - 4) + 'px';
 
   // glove fade: after 3s of no cursor input, hide the glove so a stale mouse/controller
   // cursor stops fighting the active one. ANY mouse move / stick push / swipe / press
@@ -1528,6 +1498,14 @@ function updateMenuCursor(dt) {
   if (pressing) gloveEl.className = 'press';
   else if (overBtn) gloveEl.className = 'hover';
   else gloveEl.className = '';
+
+  // vocal hover: a soft descending gold-peanut chirp when the cursor lands on a NEW
+  // clickable (debounced so sweeping a button grid doesn't machine-gun the sound)
+  if (overBtn && overBtn !== _cursorHoverEl && !pressing) {
+    const now = performance.now();
+    if (now - _cursorHoverSfxT > 90) { AudioFX.init(); AudioFX.cursorChirp(); _cursorHoverSfxT = now; }
+  }
+  _cursorHoverEl = overBtn || null;
 
   // mirror :hover onto the focused element so the BUTTON animates for gamepad/touch
   // (mouse already gets native :hover)

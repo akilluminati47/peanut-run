@@ -68,34 +68,48 @@
   .screen, .screen *{ cursor: none; }
   /* no browser focus rings (Tab is reserved for pause; we use glove/hover feedback) */
   .screen button:focus, .screen [role=button]:focus, .senspip:focus, .segbtn:focus, .selarrow:focus{ outline:none; }
-  /* The pointer is a single inline SVG (injected by JS). Its hotspot is the index
-     fingertip at local (16,3); every transform is anchored there via transform-origin,
-     so the spot you're reaching NEVER moves while it animates. */
+  /* The pointer IS the peanut sprite — small, angled like the Windows arrow. Hotspot is
+     the peanut's upper-left tip (~10,4 in the 30x30 box). Over a clickable it pulses
+     bigger, turns GOLD and sparkles — a nod to the golden-peanut pickups. */
   #glove{
-    position:fixed; left:0; top:0; width:46px; height:56px; z-index:300;
+    position:fixed; left:0; top:0; width:30px; height:30px; z-index:300;
     pointer-events:none; display:none;
-    transform-origin:16px 3px;
-    transition: opacity .3s ease, transform .12s ease, filter .15s ease;
-    filter: drop-shadow(0 2px 2px rgba(0,0,0,.5));
+    transform-origin:10px 4px;
+    transition: opacity .25s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
   }
-  #glove svg{ display:block; width:100%; height:100%; overflow:visible; }
-  /* hover: a calm confident grow + a warm "you can click this" glow (tip stays put) */
-  #glove.hover{ transform: scale(1.06); filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)) drop-shadow(0 0 4px rgba(255,198,46,.9)); }
-  /* press: squish toward the fingertip */
-  #glove.press{ transform: scale(.88); }
-  /* a little mustard sparkle twinkles on hover — purely local, never shifts the hotspot */
-  #glove .g-sparkle{ opacity:0; transform:scale(0); transform-box:fill-box; transform-origin:center; }
-  #glove.hover .g-sparkle{ animation: gloveSparkle 1s ease-in-out infinite; }
-  @keyframes gloveSparkle{
-    0%,100%{ opacity:0; transform:scale(.4) rotate(0deg); }
-    50%{ opacity:1; transform:scale(1) rotate(35deg); }
+  #glove .pn-img{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
+    transform: rotate(-26deg); transform-origin:center;
+    filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)) drop-shadow(0 0 3px rgba(255,180,40,.35));
+    transition: filter .18s ease, transform .12s ease;
+    -webkit-user-drag:none; user-select:none; pointer-events:none;
   }
-  /* press: a quick impact ring blooms out of the fingertip */
-  #glove .g-ring{ opacity:0; transform-box:fill-box; transform-origin:center; }
-  #glove.press .g-ring{ animation: gloveRing .34s ease-out; }
-  @keyframes gloveRing{
-    0%{ opacity:.85; transform:scale(.35); }
-    100%{ opacity:0; transform:scale(1.85); }
+  /* hover a clickable: the cursor pulses bigger… */
+  #glove.hover{ animation: pnPulse 1.05s ease-in-out infinite; }
+  /* …and the peanut turns golden + glows */
+  #glove.hover .pn-img{
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)) drop-shadow(0 0 8px rgba(255,200,46,.95))
+            sepia(.75) saturate(3.6) hue-rotate(-12deg) brightness(1.12);
+  }
+  @keyframes pnPulse{
+    0%,100%{ transform: scale(1.16); }
+    50%{ transform: scale(1.46); }
+  }
+  /* click: quick squish (stays a bit enlarged) */
+  #glove.press{ transform: scale(1.12); }
+  #glove.press .pn-img{ transform: rotate(-26deg) scale(.84); }
+  /* gold sparkles that twinkle around the peanut on hover */
+  #glove .pn-spark{
+    position:absolute; width:8px; height:8px; opacity:0; pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M5 0C5.4 3.4 6.6 4.6 10 5 6.6 5.4 5.4 6.6 5 10 4.6 6.6 3.4 5.4 0 5 3.4 4.6 4.6 3.4 5 0Z' fill='%23ffe07a'/%3E%3C/svg%3E") center/contain no-repeat;
+  }
+  #glove.hover .pn-spark{ animation: pnSpark 1s ease-in-out infinite; }
+  #glove .pn-spark.s1{ left:-3px; top:-3px; animation-delay:0s; }
+  #glove .pn-spark.s2{ right:-2px; top:6px; width:6px; height:6px; animation-delay:.34s; }
+  #glove .pn-spark.s3{ left:5px; bottom:-3px; width:6px; height:6px; animation-delay:.66s; }
+  @keyframes pnSpark{
+    0%,100%{ opacity:0; transform:scale(.3) rotate(0deg); }
+    50%{ opacity:1; transform:scale(1) rotate(45deg); }
   }
   body.pad, body.pad .screen, body.pad .screen *{ cursor: none !important; }
 
