@@ -127,12 +127,49 @@ function canvasTexture(size, draw, repeat) {
   return tex;
 }
 
+// Food emoji sprites are drawn from bundled Microsoft Fluent "Flat" emoji (MIT) so
+// EVERY player sees the same Windows 11-style art (the chunky carrot etc.) instead of
+// whatever their OS emoji font renders. Falls back to the system font if an asset
+// is missing or hasn't preloaded yet.
+const EMOJI_SVG = {
+  '🥕': 'assets/sprites/emoji/carrot.svg',
+  '🍅': 'assets/sprites/emoji/tomato.svg',
+  '🌽': 'assets/sprites/emoji/corn.svg',
+  '🫑': 'assets/sprites/emoji/pepper.svg',
+  '🥦': 'assets/sprites/emoji/broccoli.svg',
+  '🧅': 'assets/sprites/emoji/onion.svg',
+  '🍆': 'assets/sprites/emoji/eggplant.svg',
+  '🥬': 'assets/sprites/emoji/kale.svg',
+  '🥒': 'assets/sprites/emoji/cucumber.svg',
+  '🍔': 'assets/sprites/emoji/burger.svg',
+  '🍟': 'assets/sprites/emoji/fries.svg',
+  '🥤': 'assets/sprites/emoji/cup.svg',
+  '🌭': 'assets/sprites/emoji/hotdog.svg',
+  '🍕': 'assets/sprites/emoji/pizza.svg',
+  '🧂': 'assets/sprites/emoji/salt.svg',
+};
+const _emojiImg = {};   // emoji char -> decoded <img>, populated by preloadEmoji()
+function preloadEmoji() {
+  return Promise.all(Object.entries(EMOJI_SVG).map(([em, src]) => new Promise(res => {
+    const img = new Image();
+    img.onload = () => { _emojiImg[em] = img; res(); };
+    img.onerror = () => res();   // missing asset → emojiTexture falls back to the system font
+    img.src = src;
+  })));
+}
+
 function emojiTexture(emoji, size = 256) {
   return canvasTexture(size, (ctx, s) => {
     ctx.clearRect(0, 0, s, s);
-    ctx.font = `${s * 0.78}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, s / 2, s / 2 + s * 0.04);
+    const img = _emojiImg[emoji];
+    if (img && img.complete && img.naturalWidth) {
+      const pad = s * 0.06;
+      ctx.drawImage(img, pad, pad, s - pad * 2, s - pad * 2);
+    } else {
+      ctx.font = `${s * 0.78}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, s / 2, s / 2 + s * 0.04);
+    }
   });
 }
 
@@ -653,6 +690,7 @@ let ammoCheat = 0;                          // 0 default → 1 gold → 2 diamon
 let cheatHealthy = false;                   // debug `healthy`: 2× veggies + boxes
 
 async function loadAssets() {
+  await preloadEmoji();   // bundled Windows 11-style food emoji, ready before any veggie/decor spawns
   peanutTex = await loadTex('assets/sprites/emotes/Peanut.png');
   faceParts = {
     eyeL:  await loadTex('assets/left.png'),
