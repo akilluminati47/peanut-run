@@ -307,6 +307,8 @@
   @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
 
   .sub{position:absolute;bottom:38px;right:20px;margin-top:0;color:rgba(255,243,214,.7);font-size:13px;font-weight:600;letter-spacing:1px;}
+  a.sub.creditlink{text-decoration:none;cursor:pointer;transition:color .2s, text-shadow .2s;}
+  a.sub.creditlink:hover{color:var(--mustard);text-shadow:0 0 8px rgba(255,146,20,.9), 0 0 20px rgba(214,35,0,.75);}
 
   /* level-complete headline — sized to read about twice as long as ORDER UP! */
   .completesub{
@@ -708,7 +710,7 @@
     </div>
   </div>
   <button class="bigbtn" id="startbtn">LETS COOK</button>
-  <div class="sub" id="menusub">&copy; 2026 &bull; <a href="policies.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer">AK &amp; Co.</a></div>
+  <a class="sub creditlink" id="menusub" href="policies.html">&copy; 2026 &bull; AK &amp; Co.</a>
 </div>
 
 <div id="complete" class="screen">
