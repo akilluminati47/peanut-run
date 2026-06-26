@@ -141,6 +141,16 @@ const EMOJI_SVG = {
   '🍆': 'assets/sprites/emoji/eggplant.svg',
   '🥬': 'assets/sprites/emoji/kale.svg',
   '🥒': 'assets/sprites/emoji/cucumber.svg',
+  '🧄': 'assets/sprites/emoji/garlic.svg',
+  '🫒': 'assets/sprites/emoji/olive.svg',
+  '🫘': 'assets/sprites/emoji/beans.svg',
+  '🍄': 'assets/sprites/emoji/mushroom.svg',
+  '🌶️': 'assets/sprites/emoji/hotpepper.svg',
+  '🍠': 'assets/sprites/emoji/sweetpotato.svg',
+  '🫛': 'assets/sprites/emoji/peapod.svg',
+  '🥔': 'assets/sprites/emoji/potato.svg',
+  '🥑': 'assets/sprites/emoji/avocado.svg',
+  '🌰': 'assets/sprites/emoji/chestnut.svg',
   '🍔': 'assets/sprites/emoji/burger.svg',
   '🍟': 'assets/sprites/emoji/fries.svg',
   '🥤': 'assets/sprites/emoji/cup.svg',
@@ -1835,18 +1845,32 @@ ui.timer.addEventListener('touchstart', e => {
 
 /* ========================================================= level build */
 
+// `tier` = how early a veggie unlocks (spawn pool grows with the level). The first
+// 10 keep their original array index so BOSS_POOLS.veggieIdx references stay valid.
 const VEGGIES = [
-  { emoji: '🥕', name: 'carrot', hp: 1, speed: 5.4, scale: 1.0, r: 0.45 },
-  { emoji: '🍅', name: 'tomato', hp: 2, speed: 3.6, scale: 1.15, r: 0.5 },
-  { emoji: '🌽', name: 'corn', hp: 2, speed: 4.3, scale: 1.1, r: 0.48 },
-  { emoji: '🫑', name: 'pepper', hp: 2, speed: 4.9, scale: 1.05, r: 0.48 },
-  { emoji: '🥦', name: 'broccoli', hp: 3, speed: 2.7, scale: 1.35, r: 0.58 },
-  { emoji: 'turnip', name: 'turnip', hp: 2, speed: 4.2, scale: 1.15, r: 0.52, tex: turnipTex },
-  { emoji: '🧅', name: 'onion', hp: 2, speed: 3.8, scale: 1.20, r: 0.55 },
-  { emoji: '🍆', name: 'eggplant', hp: 1, speed: 3.5, scale: 1.2, r: 0.50 },
-  { emoji: '🥬', name: 'kale',     hp: 1, speed: 3.0, scale: 1.1, r: 0.45 },
-  { emoji: '🥒', name: 'cucumber', hp: 1, speed: 4.5, scale: 1.0, r: 0.42 },
+  { emoji: '🥕', name: 'carrot', hp: 1, speed: 5.4, scale: 1.0, r: 0.45, tier: 1 },
+  { emoji: '🍅', name: 'tomato', hp: 2, speed: 3.6, scale: 1.15, r: 0.5, tier: 2 },
+  { emoji: '🌽', name: 'corn', hp: 2, speed: 4.3, scale: 1.1, r: 0.48, tier: 3 },
+  { emoji: '🫑', name: 'pepper', hp: 2, speed: 4.9, scale: 1.05, r: 0.48, tier: 4 },
+  { emoji: '🥦', name: 'broccoli', hp: 3, speed: 2.7, scale: 1.35, r: 0.58, tier: 5 },
+  { emoji: 'turnip', name: 'turnip', hp: 2, speed: 4.2, scale: 1.15, r: 0.52, tex: turnipTex, tier: 5 },
+  { emoji: '🧅', name: 'onion', hp: 2, speed: 3.8, scale: 1.20, r: 0.55, tier: 4 },
+  { emoji: '🍆', name: 'eggplant', hp: 1, speed: 3.5, scale: 1.2, r: 0.50, tier: 2 },
+  { emoji: '🥬', name: 'kale',     hp: 1, speed: 3.0, scale: 1.1, r: 0.45, tier: 2 },
+  { emoji: '🥒', name: 'cucumber', hp: 1, speed: 4.5, scale: 1.0, r: 0.42, tier: 3 },
+  // --- new produce (Fluent sprites) ---
+  { emoji: '🧄', name: 'garlic',      hp: 1, speed: 5.8, scale: 0.85, r: 0.40, tier: 2 },   // fast swarmer
+  { emoji: '🫒', name: 'olive',       hp: 1, speed: 5.6, scale: 0.78, r: 0.36, tier: 3 },   // tiny + fast
+  { emoji: '🫘', name: 'beans',       hp: 1, speed: 5.0, scale: 0.95, r: 0.44, tier: 3 },   // swarmer
+  { emoji: '🍄', name: 'mushroom',    hp: 2, speed: 3.9, scale: 1.05, r: 0.48, tier: 3 },
+  { emoji: '🌶️', name: 'hotpepper',  hp: 1, speed: 6.4, scale: 0.95, r: 0.42, tier: 4 },   // glass-cannon rusher
+  { emoji: '🍠', name: 'sweetpotato', hp: 2, speed: 4.4, scale: 1.22, r: 0.52, tier: 4 },
+  { emoji: '🫛', name: 'peapod',      hp: 2, speed: 4.6, scale: 1.12, r: 0.50, tier: 5, splits: 2 }, // bursts into mini-pods
+  { emoji: '🥔', name: 'potato',      hp: 3, speed: 3.3, scale: 1.30, r: 0.56, tier: 5 },   // tank
+  { emoji: '🥑', name: 'avocado',     hp: 3, speed: 3.0, scale: 1.32, r: 0.57, tier: 6 },   // tank (the pit)
+  { emoji: '🌰', name: 'chestnut',    hp: 4, speed: 2.6, scale: 1.20, r: 0.54, tier: 6 },   // armored bruiser
 ];
+const MAX_VEGGIE_TIER = Math.max(...VEGGIES.map(v => v.tier));
 // boss pools: each type has 1-2 names (50% chance each), may link to a small veggie variant
 const BOSS_POOLS = [
   { type: 'cauliflower', emoji: '🥦', tex: cauliflowerTex, names: ['CAULIBLORB THE DENSE'], veggieIdx: 4 },
@@ -2624,12 +2648,13 @@ function generateLevel(n, seedOffset) {
 
     // veggie enemies (none in seg 0; plaza stays clear on boss levels)
     if (i > 0 && !(isEnd && bossLevel)) {
-      const maxTier = clamp(1 + Math.floor(n / 2), 1, VEGGIES.length);
+      const maxTier = clamp(1 + Math.floor(n / 2), 1, MAX_VEGGIE_TIER);
+      const pool = VEGGIES.filter(v => v.tier <= maxTier);   // unlocked veggies for this level
       let count = isEnd ? 2 + Math.min(4, Math.floor(n / 2)) : 1 + ((rng() * (1 + n * 0.5)) | 0);
       count = Math.min(count * veggieMult, 6 * veggieMult);
       for (let e = 0; e < count; e++) {
         const p = toWorld((rng() * 2 - 1) * (half - 1.2), 2 + rng() * (len - 4));
-        enemies.push(makeEnemy(group, VEGGIES[(rng() * maxTier) | 0], p.x, p.z, rng));
+        enemies.push(makeEnemy(group, pool[(rng() * pool.length) | 0], p.x, p.z, rng));
       }
     }
 
@@ -3177,6 +3202,17 @@ function updateProjectiles(dt) {
               spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#ffc62e', 14, 4, { life: 0.6 });
               AudioFX.kill();
               rumble(0.28, 0.18, 70);             // light pop on a veggie kill
+              // pea pod bursts into smaller, faster pods (which don't split again).
+              // Safe to push here: the projectile loop `break`s right after this hit.
+              if (e.def.splits && level && level.group) {
+                for (let s = 0; s < e.def.splits; s++) {
+                  const a = Math.random() * Math.PI * 2, rr = 0.5 + Math.random() * 0.6;
+                  level.enemies.push(makeEnemy(level.group, {
+                    ...e.def, hp: 1, scale: e.def.scale * 0.55, r: e.def.r * 0.6,
+                    speed: e.def.speed * 1.4, splits: 0,
+                  }, e.pos.x + Math.cos(a) * rr, e.pos.z + Math.sin(a) * rr, Math.random));
+                }
+              }
             }
           } else {
             AudioFX.hit();
