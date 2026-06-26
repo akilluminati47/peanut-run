@@ -29,9 +29,7 @@
 <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=5">
 <link rel="apple-touch-icon" href="/favicon-512.png?v=5">
 <title>PEANUT RUN</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Rubik:wght@400;600;800&family=Chivo+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="./assets/fonts/fonts.css" rel="stylesheet">
 <style>
   :root{
     --ketchup:#d62300;
@@ -710,7 +708,7 @@
     </div>
   </div>
   <button class="bigbtn" id="startbtn">LETS COOK</button>
-  <div class="sub" id="menusub">&copy; 2026 &bull; AK &amp; Co.</div>
+  <div class="sub" id="menusub">&copy; 2026 &bull; <a href="policies.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer">AK &amp; Co.</a></div>
 </div>
 
 <div id="complete" class="screen">
@@ -804,7 +802,18 @@
 </div>
 
 <script type="importmap">
-{ "imports": { "three": "./libs/three.module.js" } }
+{ "imports": { "three": "./libs/three.module.js",
+               "@discord/embedded-app-sdk": "./libs/discord-embedded-app-sdk.mjs" } }
+</script>
+<script type="module">
+// ── Discord Activity handshake (no-op in a normal browser) ──
+if (new URLSearchParams(location.search).has('frame_id')) {
+  try {
+    const { DiscordSDK } = await import('@discord/embedded-app-sdk');
+    const discordSdk = new DiscordSDK('1520107992266178782'); // Peanut Run
+    await discordSdk.ready();
+  } catch (e) { console.error('[discord] handshake failed', e); }
+}
 </script>
 <script type="module" src="src/main.js?v=60"></script>
 </body>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>POLICIES — Peanut Run</title>
+<link rel="icon" type="image/png" sizes="256x256" href="./favicon-256.png">
+<link rel="icon" type="image/png" sizes="512x512" href="./favicon-512.png">
+<link rel="apple-touch-icon" href="./favicon-512.png">
+<meta name="theme-color" content="#d62300">
+<link href="./assets/fonts/fonts.css" rel="stylesheet">
+<style>
+  :root{
+    --ketchup:#d62300; --ketchup-dk:#8f1500;
+    --mustard:#ffc62e; --cheese:#ff9214;
+    --bun:#f2d8a7; --cream:#fff3d6; --pickle:#6aa84f;
+    --grease:#2a0f0a; --grease-dk:#1a0805;
+    --display:'Luckiest Guy','Arial Black',cursive;
+    --body:'Rubik',sans-serif;
+    --mono:'Chivo Mono','Consolas',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{ width:100%; min-height:100%; background:var(--grease); color:var(--cream); font-family:var(--body); -webkit-text-size-adjust:100%; }
+  body{
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -8%, rgba(255,198,46,.16) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 45% at 100% 100%, rgba(214,35,0,.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 45% at 0% 100%, rgba(106,168,79,.10) 0%, transparent 60%);
+    min-height:100vh;
+  }
+  .checker{ height:14px; background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 0 0/24px 24px; }
+  .wrap{ max-width:880px; margin:0 auto; padding:26px 20px 90px; }
+
+  .topbar{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding-bottom:18px; }
+  .brand{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .brand .peanut{ font-size:14px; letter-spacing:3px; font-weight:800; color:var(--mustard); text-transform:uppercase; font-family:var(--body); }
+  .brand h1{
+    font-family:var(--display); font-weight:400; font-size:42px; line-height:.95; letter-spacing:1px;
+    color:var(--mustard); -webkit-text-stroke:2px var(--grease-dk);
+    text-shadow:3px 3px 0 var(--ketchup-dk), 5px 5px 0 rgba(0,0,0,.35);
+  }
+  .back-link{
+    font-family:var(--body); font-weight:800; font-size:12px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--grease); background:var(--mustard); border:2px solid var(--grease-dk);
+    border-radius:10px; padding:8px 14px; text-decoration:none; box-shadow:0 4px 0 var(--grease-dk);
+    transition:transform .08s, box-shadow .08s;
+  }
+  .back-link:hover{ transform:translateY(-2px); box-shadow:0 6px 0 var(--grease-dk); }
+  .back-link:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--grease-dk); }
+
+  .intro{ margin-top:8px; color:var(--bun); line-height:1.6; font-size:15px; }
+  .intro b{ color:var(--cream); }
+  .eff{ display:inline-block; margin-top:8px; font-family:var(--mono); font-size:12px; color:var(--pickle); letter-spacing:1px; }
+
+  .doc h2{
+    font-family:var(--display); font-weight:400; font-size:26px; letter-spacing:1px; color:var(--ketchup);
+    -webkit-text-stroke:1.5px var(--grease-dk); text-shadow:2px 2px 0 rgba(0,0,0,.3);
+    margin:40px 0 6px; padding-bottom:8px; border-bottom:3px dashed rgba(242,216,167,.25);
+  }
+  .doc h3{ font-family:var(--body); font-weight:800; font-size:14px; letter-spacing:1.5px; text-transform:uppercase; color:var(--mustard); margin:22px 0 6px; }
+  .doc p,.doc li{ font-size:15px; line-height:1.7; color:var(--cream); }
+  .doc ul{ margin:8px 0 8px 22px; }
+  .doc li{ margin:5px 0; }
+  .doc a{ color:var(--mustard); text-decoration:none; border-bottom:2px dotted var(--cheese); }
+  .doc a:hover{ color:#fff; }
+  .callout{
+    margin:16px 0; padding:14px 18px; border-left:5px solid var(--mustard);
+    background:rgba(0,0,0,.22); border-radius:0 12px 12px 0; line-height:1.6; color:var(--bun);
+  }
+  .callout b{ color:var(--cream); }
+  footer.foot{
+    margin-top:56px; padding-top:20px; border-top:3px dashed rgba(242,216,167,.22);
+    text-align:center; font-family:var(--mono); font-size:12px; letter-spacing:.5px; color:var(--bun); line-height:1.8;
+  }
+  footer.foot a{ color:var(--mustard); text-decoration:none; }
+  footer.foot a:hover{ color:#fff; }
+</style>
+</head>
+<body>
+<div class="checker"></div>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div>
+        <div class="peanut">🥜 Peanut Run</div>
+        <h1>POLICIES</h1>
+      </div>
+    </div>
+    <a class="back-link" href="index.html">&larr; Back to the kitchen</a>
+  </div>
+
+  <p class="intro">
+    Terms of Service &amp; Privacy Policy for <b>Peanut Run</b> ("the Game"), a free, non-commercial
+    cartoon runner-shooter. One document, both topics: how you may play, and how your information is
+    (and mostly isn't) handled.<br>
+    <span class="eff">Last updated: 26 June 2026</span>
+  </p>
+
+  <div class="doc">
+
+    <h2>Terms of Service</h2>
+
+    <h3>1. Acceptance</h3>
+    <p>By loading or playing the Game &mdash; in a web browser or as a Discord Activity &mdash; you agree to these terms. If you do not agree, don't play.</p>
+
+    <h3>2. Fan project &amp; ownership</h3>
+    <p>Peanut Run is an unofficial, non-commercial fan project. The game code and original art are &copy; 2026 AK &amp; Co. (akilluminati47), all rights reserved. Any third-party characters, names, or trademarks referenced belong to their respective owners; the Game is not affiliated with or endorsed by them.</p>
+
+    <h3>3. Acceptable use</h3>
+    <ul>
+      <li>Play for fun &mdash; don't attempt to break, overload, or disrupt the Game or other players.</li>
+      <li>Don't redistribute, sell, or pass the Game off as your own or as official.</li>
+      <li>Don't use the Game where it would be illegal to do so.</li>
+    </ul>
+
+    <h3>4. "As is" &mdash; no warranty</h3>
+    <p>The Game is provided "as is" and "as available", without warranties of any kind. Features, saved settings, and availability may change or break at any time without notice.</p>
+
+    <h3>5. Limitation of liability</h3>
+    <p>To the fullest extent permitted by law, the creator is not liable for any damages arising from your use of the Game, including loss of progress or settings.</p>
+
+    <h3>6. Changes</h3>
+    <p>These terms may be updated at any time; the "last updated" date above reflects the current version. Continued play after a change means you accept it.</p>
+
+    <h2>Privacy Policy</h2>
+
+    <h3>1. The short version</h3>
+    <div class="callout">
+      Peanut Run has <b>no accounts, no servers collecting your data, no cookies, and no analytics or tracking</b>. It does not collect, sell, or share personal information.
+    </div>
+
+    <h3>2. What's stored on your device</h3>
+    <p>Any preferences or progress the Game keeps are saved in your browser's <b>localStorage</b>, on your own device. This data never leaves your device and is not transmitted to us or anyone else. Clearing your browser storage erases it.</p>
+
+    <h3>3. Playing inside Discord</h3>
+    <p>When launched as a Discord Activity, the Game runs inside Discord's client and its network requests are routed through Discord's proxy. The Game does <b>not</b> request your Discord identity, friends, or messages. Anything handled by Discord itself is governed by <a href="https://discord.com/privacy" target="_blank" rel="noopener noreferrer">Discord's Privacy Policy</a>.</p>
+
+    <h3>4. Third parties</h3>
+    <p>Fonts, the 3D engine, and all game assets are served from the Game itself &mdash; there are no third-party trackers, ad networks, or external analytics.</p>
+
+    <h3>5. Children</h3>
+    <p>The Game contains cartoon action and is general-audience, but is not specifically directed at children under 13 and does not knowingly collect any information from them.</p>
+
+    <h3>6. Contact</h3>
+    <p>Questions about these policies? Reach the creator via <a href="https://guns.lol/akilluminati47" target="_blank" rel="noopener noreferrer">guns.lol/akilluminati47</a>.</p>
+
+  </div>
+
+  <footer class="foot">
+    &copy; 2026 &bull; AK &amp; Co. &mdash; All Rights Reserved<br>
+    Unofficial, non-commercial fan project. Trademarks belong to their owners.
+  </footer>
+
+</div>
+</body>
+</html>
