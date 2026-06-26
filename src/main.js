@@ -1058,67 +1058,57 @@ document.addEventListener('mousemove', e => {
 
 /* ============================ gamepad + glove cursor ============================ */
 
-// clean, rounded white cartoon glove cursor → PNG data URL.
-// Two frames: relaxed (open nubbed hand) and pressed (squished fist) so clicks animate.
-function makeGloveCursor(mode) {  // 'open' | 'hover' | 'press'
-  const w = 44, h = 50;
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  const ink = '#241a10';
-  const cap = (x, y, wd, ht, r) => {
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x, y, wd, ht, r); else ctx.rect(x, y, wd, ht);
-    ctx.fill(); ctx.stroke();
-  };
-  ctx.strokeStyle = ink; ctx.lineWidth = 2.6;
-
-  if (mode === 'press') {
-    // curled into a soft rounded fist, lower, with little tap ticks
-    ctx.fillStyle = '#ffffff';
-    cap(14, 16, 7.5, 9, 3.6);
-    cap(21, 15, 7.5, 9, 3.6);
-    cap(28, 16, 7.5, 9, 3.6);
-    cap(6, 21, 9, 9, 4.5);                  // thumb
-    cap(11, 21, 26, 19, 10);                // palm
-    ctx.fillStyle = '#e63b2e'; cap(13, 38, 22, 9, 4);   // cuff
-    ctx.strokeStyle = ink; ctx.lineWidth = 2;           // impact ticks
-    ctx.beginPath();
-    ctx.moveTo(9, 11); ctx.lineTo(6, 7);
-    ctx.moveTo(23, 8); ctx.lineTo(23, 3);
-    ctx.moveTo(37, 11); ctx.lineTo(40, 7);
-    ctx.stroke();
-  } else {
-    // relaxed: four rounded finger nubs + thumb, soft round palm, cuff
-    const lift = mode === 'hover' ? -2 : 0;   // hover frame sits a touch higher
-    ctx.fillStyle = '#ffffff';
-    cap(13, 6 + lift, 7.5, 17, 3.6);
-    cap(20, 4 + lift, 7.5, 19, 3.6);
-    cap(27, 6 + lift, 7.5, 17, 3.6);
-    cap(33, 9 + lift, 6.5, 14, 3.2);
-    cap(5, 17 + lift, 9, 10, 4.5);          // thumb
-    cap(10, 17 + lift, 28, 22, 11);         // palm
-    ctx.fillStyle = '#e63b2e'; cap(12, 37 + lift, 24, 9, 4);   // cuff
-    if (mode === 'hover') {                  // little sparkle to read as "clickable"
-      ctx.strokeStyle = '#ffd75e'; ctx.lineWidth = 2;
-      const sx = 39, sy = 6;
-      ctx.beginPath();
-      ctx.moveTo(sx - 3, sy); ctx.lineTo(sx + 3, sy);
-      ctx.moveTo(sx, sy - 3); ctx.lineTo(sx, sy + 3);
-      ctx.stroke();
-    }
-  }
-  return c.toDataURL('image/png');
+// Gorgeous cartoon "kitchen glove" pointer, built as one crisp inline SVG.
+// It points with a single index finger whose TIP is the hotspot, at local (16,3) —
+// so what you're reaching is never ambiguous. Every animation (hover grow, press
+// squish, ring, sparkle) is anchored at that tip, so the point never drifts.
+const GLOVE_INK = '#3a2412';
+const GLOVE_SPARKLE_D = 'M28 1.4 C28.7 4.5 29.5 5.3 32.6 6 C29.5 6.7 28.7 7.5 28 10.6 C27.3 7.5 26.5 6.7 23.4 6 C26.5 5.3 27.3 4.5 28 1.4 Z';
+function gloveCore() {
+  return ''
+    + '<defs>'
+    +   '<linearGradient id="gBody" x1="0" y1="0" x2="1" y2="1">'
+    +     '<stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f0e2c6"/></linearGradient>'
+    +   '<linearGradient id="gCuff" x1="0" y1="0" x2="0" y2="1">'
+    +     '<stop offset="0" stop-color="#ff4326"/><stop offset="1" stop-color="#b11c05"/></linearGradient>'
+    + '</defs>'
+    + '<g stroke="' + GLOVE_INK + '" stroke-width="2.4" stroke-linejoin="round">'
+    +   '<rect x="22" y="21.5" width="8.5" height="12" rx="4.2" fill="url(#gBody)"/>'            // curled fingers (knuckles)
+    +   '<rect x="28.3" y="20.5" width="8.5" height="12" rx="4.2" fill="url(#gBody)"/>'
+    +   '<rect x="34.3" y="22.5" width="7.5" height="11.5" rx="3.6" fill="url(#gBody)"/>'
+    +   '<rect x="9" y="24" width="30" height="22" rx="12" fill="url(#gBody)"/>'                 // palm / fist
+    +   '<rect x="10.5" y="42.5" width="29" height="11.6" rx="5" fill="url(#gCuff)"/>'           // ketchup cuff
+    +   '<rect x="3" y="26" width="12" height="11" rx="5.5" transform="rotate(-16 9 31)" fill="url(#gBody)"/>'  // thumb
+    +   '<rect x="11.5" y="3" width="9" height="25" rx="4.5" fill="url(#gBody)"/>'               // index finger (the pointer)
+    + '</g>'
+    + '<path d="M14 48.3 h22" fill="none" stroke="#ffc62e" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2 2.4" opacity=".9"/>'  // mustard stitch
+    + '<g fill="#ffffff" opacity=".6" stroke="none">'                                            // glossy highlights
+    +   '<rect x="13.3" y="5.6" width="3.2" height="13" rx="1.6"/>'
+    +   '<ellipse cx="17" cy="30.5" rx="5" ry="2.5" transform="rotate(-28 17 30.5)"/>'
+    + '</g>';
 }
-const GLOVE_URL = makeGloveCursor('open');
-const GLOVE_HOVER_URL = makeGloveCursor('hover');
-const GLOVE_PRESS_URL = makeGloveCursor('press');
-document.documentElement.style.setProperty('--glove', `url(${GLOVE_URL}) 22 3, pointer`);
-document.documentElement.style.setProperty('--glove-hover', `url(${GLOVE_HOVER_URL}) 22 3, pointer`);
-document.documentElement.style.setProperty('--glove-press', `url(${GLOVE_PRESS_URL}) 22 3, pointer`);
-document.documentElement.style.setProperty('--glove-img', `url(${GLOVE_URL})`);
+function gloveSVG(state, animated) {
+  let extra = '';
+  if (animated) {
+    extra = '<circle class="g-ring" cx="16" cy="3" r="6" fill="none" stroke="#ffc62e" stroke-width="2"/>'
+          + '<path class="g-sparkle" d="' + GLOVE_SPARKLE_D + '" fill="#ffd75e" stroke="#ffb300" stroke-width=".6"/>';
+  } else if (state === 'hover') {
+    extra = '<path d="' + GLOVE_SPARKLE_D + '" fill="#ffd75e" stroke="#ffb300" stroke-width=".6"/>';
+  } else if (state === 'press') {
+    extra = '<circle cx="16" cy="3" r="7.5" fill="none" stroke="#ffc62e" stroke-width="2" opacity=".7"/>';
+  }
+  const ov = animated ? ' overflow="visible"' : '';
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="46" height="56" viewBox="0 0 46 56"' + ov + '>' + gloveCore() + extra + '</svg>';
+}
+function gloveCursor(state) { return 'data:image/svg+xml,' + encodeURIComponent(gloveSVG(state, false)); }
+const GLOVE_URL = gloveCursor('open');
+const GLOVE_HOVER_URL = gloveCursor('hover');
+const GLOVE_PRESS_URL = gloveCursor('press');
+document.documentElement.style.setProperty('--glove', 'url("' + GLOVE_URL + '") 16 3, pointer');
+document.documentElement.style.setProperty('--glove-hover', 'url("' + GLOVE_HOVER_URL + '") 16 3, pointer');
+document.documentElement.style.setProperty('--glove-press', 'url("' + GLOVE_PRESS_URL + '") 16 3, pointer');
 const gloveEl = document.getElementById('glove');
-if (gloveEl) gloveEl.style.transition = 'opacity .3s ease';   // smooth idle fade-out/in
+if (gloveEl) gloveEl.innerHTML = gloveSVG('open', true);   // one inline SVG; states are driven by CSS classes
 
 let inputMode = 'kbm';   // 'kbm' | 'gamepad' | 'touch'
 let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
@@ -1464,7 +1454,7 @@ function updateMenuCursor(dt) {
     cursorX = clamp(cursorX + mx * sp * dt, 4, window.innerWidth - 4);
     cursorY = clamp(cursorY + my * sp * dt, 4, window.innerHeight - 4);
   }
-  gloveEl.style.left = (cursorX - 22) + 'px';
+  gloveEl.style.left = (cursorX - 16) + 'px';   // fingertip hotspot is at local (16,3)
   gloveEl.style.top = (cursorY - 3) + 'px';
 
   // glove fade: after 3s of no cursor input, hide the glove so a stale mouse/controller
@@ -1487,9 +1477,9 @@ function updateMenuCursor(dt) {
   const el = document.elementFromPoint(cursorX, cursorY);
   const overBtn = el && el.closest && el.closest('button, [role=button], .senspip, .selarrow');
   const pressing = inputMode === 'gamepad' ? gp.aHeld : inputMode === 'touch' ? touchMenuActive : lmb;
-  if (pressing) { gloveEl.className = 'press'; gloveEl.style.backgroundImage = `url(${GLOVE_PRESS_URL})`; }
-  else if (overBtn) { gloveEl.className = 'hover'; gloveEl.style.backgroundImage = `url(${GLOVE_HOVER_URL})`; }
-  else { gloveEl.className = ''; gloveEl.style.backgroundImage = `url(${GLOVE_URL})`; }
+  if (pressing) gloveEl.className = 'press';
+  else if (overBtn) gloveEl.className = 'hover';
+  else gloveEl.className = '';
 
   // mirror :hover onto the focused element so the BUTTON animates for gamepad/touch
   // (mouse already gets native :hover)

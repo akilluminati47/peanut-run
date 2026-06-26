@@ -68,15 +68,35 @@
   .screen, .screen *{ cursor: none; }
   /* no browser focus rings (Tab is reserved for pause; we use glove/hover feedback) */
   .screen button:focus, .screen [role=button]:focus, .senspip:focus, .segbtn:focus, .selarrow:focus{ outline:none; }
+  /* The pointer is a single inline SVG (injected by JS). Its hotspot is the index
+     fingertip at local (16,3); every transform is anchored there via transform-origin,
+     so the spot you're reaching NEVER moves while it animates. */
   #glove{
-    position:fixed; left:0; top:0; width:44px; height:50px; z-index:300;
-    background-image: var(--glove-img); background-size:contain; background-repeat:no-repeat;
-    pointer-events:none; display:none; transform-origin:22px 3px;
-    filter: drop-shadow(0 3px 4px rgba(0,0,0,.55));
+    position:fixed; left:0; top:0; width:46px; height:56px; z-index:300;
+    pointer-events:none; display:none;
+    transform-origin:16px 3px;
+    transition: opacity .3s ease, transform .12s ease, filter .15s ease;
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,.5));
   }
-  #glove.hover{ animation: gloveBob .55s ease-in-out infinite; }
-  #glove.press{ transform: scale(.86); }
-  @keyframes gloveBob{ 0%,100%{ transform: translateY(0) scale(1); } 50%{ transform: translateY(-5px) scale(1.08); } }
+  #glove svg{ display:block; width:100%; height:100%; overflow:visible; }
+  /* hover: a calm confident grow + a warm "you can click this" glow (tip stays put) */
+  #glove.hover{ transform: scale(1.06); filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)) drop-shadow(0 0 4px rgba(255,198,46,.9)); }
+  /* press: squish toward the fingertip */
+  #glove.press{ transform: scale(.88); }
+  /* a little mustard sparkle twinkles on hover — purely local, never shifts the hotspot */
+  #glove .g-sparkle{ opacity:0; transform:scale(0); transform-box:fill-box; transform-origin:center; }
+  #glove.hover .g-sparkle{ animation: gloveSparkle 1s ease-in-out infinite; }
+  @keyframes gloveSparkle{
+    0%,100%{ opacity:0; transform:scale(.4) rotate(0deg); }
+    50%{ opacity:1; transform:scale(1) rotate(35deg); }
+  }
+  /* press: a quick impact ring blooms out of the fingertip */
+  #glove .g-ring{ opacity:0; transform-box:fill-box; transform-origin:center; }
+  #glove.press .g-ring{ animation: gloveRing .34s ease-out; }
+  @keyframes gloveRing{
+    0%{ opacity:.85; transform:scale(.35); }
+    100%{ opacity:0; transform:scale(1.85); }
+  }
   body.pad, body.pad .screen, body.pad .screen *{ cursor: none !important; }
 
   /* controller button chips in Today's Menu */
