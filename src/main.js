@@ -3193,6 +3193,42 @@ function spawnBossWave() {
   AudioFX.boom(); rumble(0.7, 0.5, 240);
 }
 
+// Boss busts a drive-thru SLIDE bar: red shatter + drop its collision, then schedule a
+// 3s regen so the street "heals" itself back into a solid obstacle.
+function smashSlide(ob) {
+  if (ob.broken) return;
+  ob.broken = true;
+  ob.mesh.visible = false;
+  const idx = level.boxes.indexOf(ob.box);
+  if (idx >= 0) { level.boxes.splice(idx, 1); ob._removed = true; }
+  spawnBurst(ob.mesh.position, '#ff3b30', 36, 7, { life: 0.9 });   // reddish flash on break
+  spawnBurst(ob.mesh.position, '#ff8a5c', 16, 4, { life: 0.5 });
+  AudioFX.boom(); rumble(0.6, 0.5, 200);
+  ob.regenT = 3;
+}
+
+// Per-frame: count down broken slide bars and re-solidify them with a fading red glow.
+const _OB_GLOW = 0.6;
+function tickObstacles(dt) {
+  if (!level || !level.obstacles) return;
+  for (const ob of level.obstacles) {
+    if (ob.broken) {
+      ob.regenT -= dt;
+      if (ob.regenT <= 0) {                              // regenerate — solidify again
+        ob.broken = false;
+        ob.mesh.visible = true;
+        if (ob._removed) { level.boxes.push(ob.box); ob._removed = false; }
+        ob.glowT = _OB_GLOW;
+        spawnBurst(ob.mesh.position, '#ff5a3c', 18, 4, { life: 0.45 });
+      }
+    } else if (ob.glowT > 0) {
+      ob.glowT -= dt;
+      const em = ob.mesh.material && ob.mesh.material.emissive;
+      if (em) { const k = Math.max(0, ob.glowT / _OB_GLOW); em.setRGB(k, k * 0.15, k * 0.1); }
+    }
+  }
+}
+
 const tmpV = new THREE.Vector3();
 function updateEnemies(dt, time) {
   for (const e of level.enemies) {
@@ -3211,25 +3247,15 @@ function updateEnemies(dt, time) {
       else if (e.lungeCD <= 0 && dist < 26) { e.lungeT = 0.55; e.lungeCD = 3.4; AudioFX.hurt(); }
       // gravity for hops; enraged boss smashes slide bars & hops jump counters
       e.vy = (e.vy || 0) + GRAV * dt;
-      if (e.enraged && level.obstacles) {
+      if (level.obstacles) {
         for (const ob of level.obstacles) {
-          if (ob.broken) continue;
-          const oz = ob.mesh.position.z;
-          const od = Math.hypot(e.pos.x - ob.mesh.position.x, e.pos.z - oz);
-          // act on an obstacle that's AHEAD on the way to the player, and from afar (~6u) so it
-          // telegraphs early instead of reacting on contact — and never phases into/through it
-          const ahead = (oz - e.pos.z) * (PLAYER.pos.z - e.pos.z) >= -0.5;
-          if (od < e.def.r + 6 && ahead) {
-            if (ob.type === 'slide') {                  // smash the drive-thru bar from a distance
-              ob.broken = true; ob.mesh.visible = false;
-              const idx = level.boxes.indexOf(ob.box); if (idx >= 0) level.boxes.splice(idx, 1);
-              spawnBurst(ob.mesh.position, '#ffc62e', 36, 7, { life: 0.9 });
-              spawnBurst(ob.mesh.position, '#fff3d6', 16, 4, { life: 0.5 });
-              AudioFX.boom(); rumble(0.6, 0.5, 200);
-            } else if (ob.type === 'jump' && e.onGround) {
-              e.vy = 12;                                 // hop EARLY so it sails clean over the counter
-            }
-          }
+          const od = Math.hypot(e.pos.x - ob.mesh.position.x, e.pos.z - ob.mesh.position.z);
+          if (od >= e.def.r + 6) continue;
+          // GUARANTEED smash: any boss near a slide bar always busts it (re-forms after 3s)
+          if (ob.type === 'slide') { if (!ob.broken) smashSlide(ob); }
+          // hop the JUMP! counter early — only once roused, and only when it's ahead on the way in
+          else if (ob.type === 'jump' && e.enraged && e.onGround &&
+                   (ob.mesh.position.z - e.pos.z) * (PLAYER.pos.z - e.pos.z) >= -0.5) e.vy = 12;
         }
       }
       vy = e.vy;
@@ -4029,6 +4055,7 @@ function tick() {
         }
         updatePlayer(dt);
         updateEnemies(dt, time);
+        tickObstacles(dt);
         updatePickups(dt, time);
         updateProjectiles(dt);
       }
