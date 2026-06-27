@@ -174,13 +174,16 @@ if (new URLSearchParams(location.search).has('frame_id')) {
   try {
     const { DiscordSDK } = await import('@discord/embedded-app-sdk');
     const discordSdk = new DiscordSDK('1520107992266178782'); // Peanut Run
-    await discordSdk.ready();
+    // capture phase + BEFORE ready() so a slow/failed handshake can't leave the
+    // Contact / Discord-privacy links un-intercepted (the iframe blocks _blank)
     document.addEventListener('click', (e) => {
       const a = e.target.closest?.('a[href^="http"]');
       if (!a) return;
       e.preventDefault();
-      discordSdk.commands.openExternalLink({ url: a.href });
-    });
+      discordSdk.commands.openExternalLink({ url: a.href })
+        .catch(err => console.error('[discord] openExternalLink failed', err));
+    }, true);
+    await discordSdk.ready();
   } catch (e) { console.error('[discord] handshake failed', e); }
 }
 </script>
