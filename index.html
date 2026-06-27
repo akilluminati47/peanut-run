@@ -847,6 +847,10 @@
 <script type="module">
 // ── Discord Activity handshake (no-op in a normal browser) ──
 if (new URLSearchParams(location.search).has('frame_id')) {
+  // carry the Discord session params to the policies page so it can detect the
+  // Activity too and route its own external links through the SDK
+  const ps = document.getElementById('menusub');
+  if (ps) ps.href = 'policies.html' + location.search;
   try {
     const { DiscordSDK } = await import('@discord/embedded-app-sdk');
     const discordSdk = new DiscordSDK('1520107992266178782'); // Peanut Run
