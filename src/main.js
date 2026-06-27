@@ -3193,33 +3193,59 @@ function spawnBossWave() {
   AudioFX.boom(); rumble(0.7, 0.5, 240);
 }
 
-// Boss busts a drive-thru SLIDE bar: red shatter + drop its collision, then schedule a
-// 3s regen so the street "heals" itself back into a solid obstacle.
-function smashSlide(ob) {
+// Particles that START on a sphere and converge INWARD to `pos` — the reverse of a
+// burst, used to visualise a slide bar reassembling itself.
+function spawnImplode(pos, color, count, radius, life) {
+  const c = new THREE.Color(color);
+  for (let i = 0; i < count; i++) {
+    if (particles.length >= MAX_PARTICLES) break;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    const dx = Math.sin(ph) * Math.cos(th), dy = Math.cos(ph), dz = Math.sin(ph) * Math.sin(th);
+    const r = radius * (0.55 + Math.random() * 0.45);
+    particles.push({
+      x: pos.x + dx * r, y: pos.y + dy * r, z: pos.z + dz * r,
+      vx: -dx * r / life, vy: -dy * r / life, vz: -dz * r / life,   // arrive at center as life ends
+      life, maxLife: life, r: c.r, g: c.g, b: c.b, grav: 0,
+    });
+  }
+}
+
+// Boss busts a drive-thru SLIDE bar: an outward shatter at the point it punches through,
+// then a 3s timer, then the bar reassembles (reverse particles in tickObstacles).
+function smashSlide(ob, e) {
   if (ob.broken) return;
   ob.broken = true;
   ob.mesh.visible = false;
   const idx = level.boxes.indexOf(ob.box);
   if (idx >= 0) { level.boxes.splice(idx, 1); ob._removed = true; }
-  spawnBurst(ob.mesh.position, '#ff3b30', 36, 7, { life: 0.9 });   // reddish flash on break
-  spawnBurst(ob.mesh.position, '#ff8a5c', 16, 4, { life: 0.5 });
+  // burst FROM where the boss breaks through (boss x, clamped to the bar's span)
+  const hit = ob.hit || (ob.hit = new THREE.Vector3());
+  hit.set(clamp(e.pos.x, ob.box.min.x, ob.box.max.x), ob.mesh.position.y, ob.mesh.position.z);
+  spawnBurst(hit, '#ff3b30', 48, 8, { life: 0.9 });    // reddish shatter
+  spawnBurst(hit, '#ff8a5c', 24, 5, { life: 0.6 });
+  spawnBurst(hit, '#ffc62e', 30, 7, { life: 0.9 });    // gold debris (the original look, restored)
+  spawnBurst(hit, '#fff3d6', 18, 4, { life: 0.5 });
   AudioFX.boom(); rumble(0.6, 0.5, 200);
   ob.regenT = 3;
 }
 
-// Per-frame: count down broken slide bars and re-solidify them with a fading red glow.
+// Per-frame: count down broken slide bars; when the timer ends, reassemble them with
+// inward (reverse) particles and a fading red glow.
 const _OB_GLOW = 0.6;
 function tickObstacles(dt) {
   if (!level || !level.obstacles) return;
   for (const ob of level.obstacles) {
     if (ob.broken) {
       ob.regenT -= dt;
-      if (ob.regenT <= 0) {                              // regenerate — solidify again
+      if (ob.regenT <= 0) {                              // rebuild — reverse particles, then solidify
         ob.broken = false;
         ob.mesh.visible = true;
         if (ob._removed) { level.boxes.push(ob.box); ob._removed = false; }
         ob.glowT = _OB_GLOW;
-        spawnBurst(ob.mesh.position, '#ff5a3c', 18, 4, { life: 0.45 });
+        const hit = ob.hit || ob.mesh.position;
+        spawnImplode(hit, '#ff5a3c', 44, 2.4, 0.55);
+        spawnImplode(hit, '#ffc62e', 28, 1.9, 0.55);
       }
     } else if (ob.glowT > 0) {
       ob.glowT -= dt;
@@ -3249,13 +3275,14 @@ function updateEnemies(dt, time) {
       e.vy = (e.vy || 0) + GRAV * dt;
       if (level.obstacles) {
         for (const ob of level.obstacles) {
-          const od = Math.hypot(e.pos.x - ob.mesh.position.x, e.pos.z - ob.mesh.position.z);
-          if (od >= e.def.r + 6) continue;
-          // GUARANTEED smash: any boss near a slide bar always busts it (re-forms after 3s)
-          if (ob.type === 'slide') { if (!ob.broken) smashSlide(ob); }
+          const dzBar = Math.abs(e.pos.z - ob.mesh.position.z);
+          if (ob.type === 'slide') {
+            // tight smash: bust it only on contact (boss is in the bar's span AND right up against it)
+            if (!ob.broken && dzBar < e.def.r + 1.0 &&
+                e.pos.x > ob.box.min.x - e.def.r && e.pos.x < ob.box.max.x + e.def.r) smashSlide(ob, e);
           // hop the JUMP! counter early — only once roused, and only when it's ahead on the way in
-          else if (ob.type === 'jump' && e.enraged && e.onGround &&
-                   (ob.mesh.position.z - e.pos.z) * (PLAYER.pos.z - e.pos.z) >= -0.5) e.vy = 12;
+          } else if (ob.type === 'jump' && e.enraged && e.onGround && dzBar < e.def.r + 6 &&
+                     (ob.mesh.position.z - e.pos.z) * (PLAYER.pos.z - e.pos.z) >= -0.5) e.vy = 12;
         }
       }
       vy = e.vy;
