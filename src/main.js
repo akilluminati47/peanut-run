@@ -2283,6 +2283,21 @@ function makeTeabagMark(group, x, z) {
   return { mesh, t: 0 };
 }
 
+// red tomato guts left on the asphalt where a tomato is popped — a flat
+// ketchup-blob decal, randomised in size + spin so repeats don't look stamped.
+// Added to the level group, so it's torn down with the rest of the level.
+function spawnTomatoSplat(group, x, z) {
+  const sz = 1.7 + Math.random() * 0.8;
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(sz, sz),
+    new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false, alphaTest: 0.04, opacity: 0.9 }));
+  m.rotation.x = -Math.PI / 2;                 // lie flat on the street
+  m.rotation.z = Math.random() * Math.PI * 2;  // spin the blob in-plane
+  m.position.set(x, 0.045, z);                 // just above the floor / shadow layer
+  m.renderOrder = 1;                           // ground-decal layer, below world sprites
+  group.add(m);
+}
+
 function makeEnemy(group, def, x, z, rng, isBoss = false) {
   let map = def.tex || def.texture;            // bosses may supply a custom texture
   if (!map) {
@@ -3221,8 +3236,15 @@ function updateProjectiles(dt) {
                 else { ui.bossbar.classList.remove('on'); toast('BOSS DOWN — GRAB THE BURGER!', 2600); }
               } else toast('ONE DOWN — FINISH THE OTHER!', 1800);
             } else {
-              spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#6aa84f', 26, 5, { life: 0.8 });
-              spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#ffc62e', 14, 4, { life: 0.6 });
+              if (e.def.name === 'tomato') {
+                // splattered tomato: red juice pop + a lasting spill on the floor
+                spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#c41200', 30, 5, { life: 0.8 });
+                spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#ff7a5c', 16, 4, { life: 0.6 });
+                if (level && level.group) spawnTomatoSplat(level.group, e.pos.x, e.pos.z);
+              } else {
+                spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#6aa84f', 26, 5, { life: 0.8 });
+                spawnBurst(new THREE.Vector3(e.pos.x, 0.9, e.pos.z), '#ffc62e', 14, 4, { life: 0.6 });
+              }
               AudioFX.kill();
               rumble(0.28, 0.18, 70);             // light pop on a veggie kill
               // pea pod bursts into smaller, faster pods (which don't split again).

@@ -343,6 +343,7 @@
   .sub{position:absolute;bottom:38px;right:20px;margin-top:0;color:rgba(255,243,214,.7);font-size:13px;font-weight:600;letter-spacing:1px;}
   a.sub.creditlink{text-decoration:none;cursor:pointer;transition:color .2s, text-shadow .2s;}
   a.sub.creditlink:hover{color:var(--mustard);text-shadow:0 0 8px rgba(255,146,20,.9), 0 0 20px rgba(214,35,0,.75);}
+  #twitchlink{bottom:60px;}
 
   /* level-complete headline — sized to read about twice as long as ORDER UP! */
   .completesub{
@@ -744,6 +745,7 @@
     </div>
   </div>
   <button class="bigbtn" id="startbtn">LETS COOK</button>
+  <a class="sub creditlink" id="twitchlink" href="https://www.twitch.tv/theburntpeanut" target="_blank" rel="noopener">TheBurntPeanut</a>
   <a class="sub creditlink" id="menusub" href="policies.html">&copy; 2026 &bull; AK &amp; Co.</a>
 </div>
 
@@ -852,6 +854,6 @@ if (new URLSearchParams(location.search).has('frame_id')) {
   } catch (e) { console.error('[discord] handshake failed', e); }
 }
 </script>
-<script type="module" src="src/main.js?v=61"></script>
+<script type="module" src="src/main.js?v=62"></script>
 </body>
 </html>
