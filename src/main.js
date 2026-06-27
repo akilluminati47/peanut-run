@@ -3226,7 +3226,8 @@ function smashSlide(ob, e) {
   spawnBurst(hit, '#ff8a5c', 24, 5, { life: 0.6 });
   spawnBurst(hit, '#ffc62e', 30, 7, { life: 0.9 });    // gold debris (the original look, restored)
   spawnBurst(hit, '#fff3d6', 18, 4, { life: 0.5 });
-  AudioFX.boom(); rumble(0.6, 0.5, 200);
+  spawnBurst(hit, '#8fe6ff', 28, 6, { life: 0.7 });    // heal flash
+  AudioFX.boom(); AudioFX.heal(); rumble(0.6, 0.5, 200);
   ob.regenT = 3;
 }
 
@@ -3244,13 +3245,14 @@ function tickObstacles(dt) {
         if (ob._removed) { level.boxes.push(ob.box); ob._removed = false; }
         ob.glowT = _OB_GLOW;
         const hit = ob.hit || ob.mesh.position;
-        spawnImplode(hit, '#ff5a3c', 44, 2.4, 0.55);
+        spawnImplode(hit, '#8fe6ff', 44, 2.4, 0.55);    // heal flash, converging in
         spawnImplode(hit, '#ffc62e', 28, 1.9, 0.55);
+        AudioFX.heal();
       }
     } else if (ob.glowT > 0) {
       ob.glowT -= dt;
       const em = ob.mesh.material && ob.mesh.material.emissive;
-      if (em) { const k = Math.max(0, ob.glowT / _OB_GLOW); em.setRGB(k, k * 0.15, k * 0.1); }
+      if (em) { const k = Math.max(0, ob.glowT / _OB_GLOW); em.setRGB(k * 0.3, k * 0.85, k); }  // heal-cyan glow
     }
   }
 }
