@@ -1462,7 +1462,14 @@ function updateMenuCursor(dt) {
   // clickable (debounced so sweeping a button grid doesn't machine-gun the sound)
   if (overBtn && overBtn !== _cursorHoverEl && !pressing) {
     const now = performance.now();
-    if (now - _cursorHoverSfxT > 90) { AudioFX.init(); AudioFX.cursorChirp(hoverSemi(overBtn)); _cursorHoverSfxT = now; }
+    if (now - _cursorHoverSfxT > 90) {
+      AudioFX.init();
+      // sliders/toggles sing their musical chirp; every other button gets the same
+      // random bloop the controller plays when ramping the level selector with LB/RB
+      if (overBtn.classList.contains('senspip') || overBtn.classList.contains('segbtn')) AudioFX.cursorChirp(hoverSemi(overBtn));
+      else AudioFX.menuTick();
+      _cursorHoverSfxT = now;
+    }
   }
   _cursorHoverEl = overBtn || null;
 
@@ -1760,9 +1767,9 @@ function bindRepeat(el, fn) {
 }
 bindRepeat(document.getElementById('seldown'), () => setSelLevel(selLevel - 1));
 bindRepeat(document.getElementById('selup'), () => setSelLevel(selLevel + 1));
-document.getElementById('hs-sel').addEventListener('click', () => { AudioFX.init(); AudioFX.fireBounce(); startRun(selLevel); });
+document.getElementById('hs-sel').addEventListener('click', () => { AudioFX.init(); AudioFX.menuTick(); startRun(selLevel); });
 document.getElementById('hs-sel').addEventListener('keydown', e => {
-  if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); AudioFX.init(); AudioFX.fireBounce(); startRun(selLevel); }
+  if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); AudioFX.init(); AudioFX.menuTick(); startRun(selLevel); }
 });
 document.getElementById('nextbtn').addEventListener('click', () => nextLevel());
 document.getElementById('retrybtn').addEventListener('click', () => retryLevel());
