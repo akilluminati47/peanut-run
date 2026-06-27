@@ -847,10 +847,13 @@
 <script type="module">
 // ── Discord Activity handshake (no-op in a normal browser) ──
 if (new URLSearchParams(location.search).has('frame_id')) {
-  // carry the Discord session params to the policies page so it can detect the
-  // Activity too and route its own external links through the SDK
+  // The Activity is a single-page app: navigating the iframe to policies.html
+  // would permanently sever Discord's postMessage connection (so that page's
+  // links would die). Instead point the credit link at the PUBLIC policies URL
+  // — the interceptor below opens it in the user's real browser, where its own
+  // links work natively.
   const ps = document.getElementById('menusub');
-  if (ps) ps.href = 'policies.html' + location.search;
+  if (ps) ps.href = 'https://peanut-run.pages.dev/policies.html';
   try {
     const { DiscordSDK } = await import('@discord/embedded-app-sdk');
     const discordSdk = new DiscordSDK('1520107992266178782'); // Peanut Run

@@ -160,34 +160,6 @@
 
 <div class="checker bottom"></div>
 
-<script type="importmap">
-{ "imports": { "@discord/embedded-app-sdk": "./libs/discord-embedded-app-sdk.mjs" } }
-</script>
-<script type="module">
-// ── Discord Activity: route external links through the SDK (the sandboxed
-//    iframe blocks target="_blank", so the Contact / Discord-privacy links
-//    do nothing in-app otherwise). No-op in a normal browser. ──
-if (new URLSearchParams(location.search).has('frame_id')) {
-  // keep the Discord session params when returning to the game
-  const back = document.querySelector('.back-link');
-  if (back) back.href = 'index.html' + location.search;
-  try {
-    const { DiscordSDK } = await import('@discord/embedded-app-sdk');
-    const discordSdk = new DiscordSDK('1520107992266178782'); // Peanut Run
-    // capture phase + BEFORE ready() so a slow/failed handshake can't leave the
-    // Contact / Discord-privacy links un-intercepted (the iframe blocks _blank)
-    document.addEventListener('click', (e) => {
-      const a = e.target.closest?.('a[href^="http"]');
-      if (!a) return;
-      e.preventDefault();
-      discordSdk.commands.openExternalLink({ url: a.href })
-        .catch(err => console.error('[discord] openExternalLink failed', err));
-    }, true);
-    await discordSdk.ready();
-  } catch (e) { console.error('[discord] handshake failed', e); }
-}
-</script>
-
 <!-- the peanut pointer (same as the game): small, angled like the Windows arrow;
      turns gold, pulses and sparkles over links -->
 <script>
