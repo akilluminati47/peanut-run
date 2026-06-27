@@ -837,6 +837,7 @@
   <div id="thint">L: move (push rim = run) &nbsp;|&nbsp; R: tap &amp; swipe to aim/fire &nbsp;|&nbsp; SLIDE: tap = slide, hold = crouch</div>
 </div>
 
+<script src="./libs/lottie_canvas.min.js"></script>
 <script type="importmap">
 { "imports": { "three": "./libs/three.module.js",
                "@discord/embedded-app-sdk": "./libs/discord-embedded-app-sdk.mjs" } }
@@ -851,6 +852,6 @@ if (new URLSearchParams(location.search).has('frame_id')) {
   } catch (e) { console.error('[discord] handshake failed', e); }
 }
 </script>
-<script type="module" src="src/main.js?v=60"></script>
+<script type="module" src="src/main.js?v=61"></script>
 </body>
 </html>

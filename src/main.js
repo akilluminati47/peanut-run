@@ -194,6 +194,48 @@ function emojiTexture(emoji, size = 256) {
   });
 }
 
+// ── animated (Noto) emoji fill-ins ──────────────────────────────────────────
+// A subset of the food emoji also ship as looping Lottie vectors. Veggies and
+// rooftop decor roll a 10% chance to spawn animated instead of the static SVG
+// (bosses never animate). Each emoji gets ONE shared lottie player rendering to
+// one canvas → one CanvasTexture, reused by every animated instance of it, so
+// the cost is at most one small canvas render per distinct animated emoji.
+const ANIM_EMOJI = {
+  '🥕': 'carrot', '🍅': 'tomato', '🌽': 'corn', '🫑': 'pepper', '🥦': 'broccoli',
+  '🧅': 'onion', '🥬': 'kale', '🥒': 'cucumber', '🧄': 'garlic', '🫘': 'beans',
+  '🍄': 'mushroom', '🫛': 'peapod', '🥔': 'potato', '🥑': 'avocado', '🫚': 'gingerroot',
+  '🥗': 'salad', '🌿': 'herb', '🍔': 'burger', '🌭': 'hotdog', '🍕': 'pizza', '🧂': 'salt',
+};
+const _animData = {};       // emoji -> parsed lottie JSON (only ones that fetched OK)
+const animPlayers = {};     // emoji -> { player, canvas, tex } (lazy, session-lived)
+function preloadAnimEmoji() {
+  return Promise.all(Object.entries(ANIM_EMOJI).map(([em, name]) =>
+    fetch(`assets/sprites/animatedemoji/${name}.json`)
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j) _animData[em] = j; })
+      .catch(() => {})));   // a missing lottie just means that emoji stays static
+}
+// shared player for an emoji; play()s it (marks it live for this level) and
+// returns the CanvasTexture, or null if no lottie / library is unavailable
+function getAnimPlayer(emoji) {
+  let e = animPlayers[emoji];
+  if (!e) {
+    const data = _animData[emoji];
+    if (!data || typeof lottie === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 200;
+    const player = lottie.loadAnimation({
+      renderer: 'canvas', loop: true, autoplay: true, animationData: data,
+      rendererSettings: { context: canvas.getContext('2d'), clearCanvas: true, preserveAspectRatio: 'xMidYMid meet' },
+    });
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 16;
+    e = animPlayers[emoji] = { player, canvas, tex };
+  }
+  e.player.play();
+  return e;
+}
+
 const floorTex = canvasTexture(512, (ctx, s) => {
   const t = s / 4;
   for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
@@ -646,6 +688,7 @@ let cheatHealthy = false;                   // debug `healthy`: 2× veggies + bo
 
 async function loadAssets() {
   await preloadEmoji();   // bundled Windows 11-style food emoji, ready before any veggie/decor spawns
+  await preloadAnimEmoji();   // looping Lottie variants used as 10% animated fill-ins
   peanutTex = await loadTex('assets/sprites/emotes/Peanut.png');
   faceParts = {
     eyeL:  await loadTex('assets/left.png'),
@@ -1844,10 +1887,16 @@ const DECOR_EMOJI = ['🍔', '🍟', '🥤', '🌭', '🍕', '🧂'];
 const decorTextures = {};
 // rooftop emoji sign — depthWrite OFF + alphaTest so its transparent quad never boxes the
 // sprites behind it, and renderOrder 2 puts it on the world-sprite layer
-function makeDecorSign(em, x, y, z) {
+function makeDecorSign(em, x, y, z, rng = Math.random) {
   if (!decorTextures[em]) decorTextures[em] = emojiTexture(em);
+  let map = decorTextures[em];
+  // 10% of rooftop signs use the looping animated emoji (when one exists)
+  if (_animData[em] && rng() < 0.10) {
+    const ap = getAnimPlayer(em);
+    if (ap) map = ap.tex;
+  }
   const sign = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: decorTextures[em], transparent: true, depthWrite: false, alphaTest: 0.5,
+    map, transparent: true, depthWrite: false, alphaTest: 0.5,
   }));
   sign.scale.set(2.6, 2.6, 1);
   sign.position.set(x, y, z);
@@ -2234,11 +2283,17 @@ function makeTeabagMark(group, x, z) {
   return { mesh, t: 0 };
 }
 
-function makeEnemy(group, def, x, z, rng) {
+function makeEnemy(group, def, x, z, rng, isBoss = false) {
   let map = def.tex || def.texture;            // bosses may supply a custom texture
   if (!map) {
     if (!veggieTextures[def.emoji]) veggieTextures[def.emoji] = emojiTexture(def.emoji);
     map = veggieTextures[def.emoji];
+  }
+  // 10% of (non-boss) veggies spawn as the looping animated emoji instead
+  let animEmoji = null;
+  if (!isBoss && _animData[def.emoji] && rng() < 0.10) {
+    const ap = getAnimPlayer(def.emoji);
+    if (ap) { map = ap.tex; animEmoji = def.emoji; }
   }
   // depthWrite:false so overlapping veggies don't punch transparent-quad holes in each
   // other — two depth-writing billboards mutually occlude through their see-through
@@ -2264,7 +2319,7 @@ function makeEnemy(group, def, x, z, rng) {
   group.add(blobTop);
   spr.renderOrder = 2;                  // body draws over every shadow disc
   return {
-    def, spr, blob, blobTop, hp: def.hp, maxHp: def.hp,
+    def, spr, blob, blobTop, animEmoji, hp: def.hp, maxHp: def.hp,
     pos: new THREE.Vector3(x, 0, z),
     home: new THREE.Vector3(x, 0, z),
     bob: rng() * Math.PI * 2,
@@ -2279,7 +2334,7 @@ function makeBoss(group, n, x, z, rng, pool, name) {
     emoji: pool.emoji, name: name, hp, tex: pool.tex,
     speed: 3.0 + Math.min(2.2, n * 0.08), scale: 3.6, r: 1.7,
   };
-  const e = makeEnemy(group, def, x, z, rng);
+  const e = makeEnemy(group, def, x, z, rng, true);
   e.isBoss = true;
   e.maxHp = hp;
   e.pool = pool;   // store reference for small-veggie spawning
@@ -2294,6 +2349,9 @@ function generateLevel(n, seedOffset) {
     scene.remove(level.group);
     level.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
+  // pause every animated-emoji player; getAnimPlayer() re-plays only the ones
+  // this new level actually uses (keeps idle lottie renders off the CPU)
+  for (const k in animPlayers) animPlayers[k].player.pause();
   projectiles.forEach(p => scene.remove(p.spr));
   projectiles = [];
 
@@ -2354,7 +2412,7 @@ function generateLevel(n, seedOffset) {
         buildingMat(wallTexes[(rng() * 3) | 0], WALL_T, blen));
       if (rng() < 0.4) {
         const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
-        group.add(makeDecorSign(em, side * (LOT_HALF + WALL_T / 2), bh + 1.6, bz + blen / 2));
+        group.add(makeDecorSign(em, side * (LOT_HALF + WALL_T / 2), bh + 1.6, bz + blen / 2, rng));
       }
       bz += blen;
     }
@@ -2512,7 +2570,13 @@ function generateLevel(n, seedOffset) {
         while (nextSign[side] < wz1) {
           if (nextSign[side] >= wz0) {
             const em = DECOR_EMOJI[(rng() * DECOR_EMOJI.length) | 0];
-            group.add(makeDecorSign(em, side * (half + WALL_T / 2), bh + 1.6, nextSign[side]));
+            // pull the sign toward the middle of THIS slab: the SIGN_GAP grid can
+            // land right on a seam, where the 2.6-wide billboard pokes sideways
+            // into a taller neighbouring wall. Keep ~half its width off each edge.
+            const m = 1.5;
+            const lo = wz0 + m, hi = wz1 - m;
+            const sz = lo <= hi ? clamp(nextSign[side], lo, hi) : (wz0 + wz1) / 2;
+            group.add(makeDecorSign(em, side * (half + WALL_T / 2), bh + 1.6, sz, rng));
           }
           nextSign[side] += SIGN_GAP;
         }
@@ -4071,6 +4135,13 @@ function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
   const time = clock.elapsedTime;
+
+  // re-upload each live animated-emoji canvas to its texture (paused players,
+  // i.e. emoji not used by the current level, are skipped)
+  for (const k in animPlayers) {
+    const ap = animPlayers[k];
+    if (!ap.player.isPaused) ap.tex.needsUpdate = true;
+  }
 
   pollGamepad();
   // gamepad Start pauses during play
