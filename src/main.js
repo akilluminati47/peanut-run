@@ -1843,7 +1843,7 @@ const VEGGIES = [
   { emoji: '🥬', name: 'kale',     hp: 1, speed: 3.0, scale: 1.1, r: 0.45, tier: 2 },
   { emoji: '🥒', name: 'cucumber', hp: 1, speed: 4.5, scale: 1.0, r: 0.42, tier: 3 },
   // --- new produce (Fluent sprites) ---
-  { emoji: '🧄', name: 'garlic',      hp: 1, speed: 5.8, scale: 0.85, r: 0.40, tier: 2 },   // fast swarmer
+  { emoji: '🧄', name: 'garlic',      hp: 1, speed: 5.8, scale: 0.85, r: 0.40, tier: 2, splits: 2 },   // fast swarmer; bursts into cloves (animated → 3)
   { emoji: '🫒', name: 'olive',       hp: 1, speed: 5.6, scale: 0.78, r: 0.36, tier: 3 },   // tiny + fast
   { emoji: '🫘', name: 'beans',       hp: 1, speed: 5.0, scale: 0.95, r: 0.44, tier: 3 },   // swarmer
   { emoji: '🍄', name: 'mushroom',    hp: 2, speed: 3.9, scale: 1.05, r: 0.48, tier: 3 },
@@ -3252,8 +3252,8 @@ function updateProjectiles(dt) {
               rumble(0.28, 0.18, 70);             // light pop on a veggie kill
               // pea pod bursts into smaller, faster pods (which don't split again).
               // Safe to push here: the projectile loop `break`s right after this hit.
-              // animated pods burst into 3 mini-pods; the static ones into 2
-              const splitCount = e.animEmoji ? 3 : e.def.splits;
+              // only splitters (peapod, garlic) burst — animated into 3, static into 2
+              const splitCount = e.def.splits ? (e.animEmoji ? 3 : e.def.splits) : 0;
               if (splitCount && level && level.group) {
                 for (let s = 0; s < splitCount; s++) {
                   const a = Math.random() * Math.PI * 2, rr = 0.5 + Math.random() * 0.6;
