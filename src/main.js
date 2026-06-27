@@ -1662,7 +1662,9 @@ function pauseActivate() {
 }
 function setSelLevel(v, silent) {
   const prev = selLevel;
-  selLevel = clamp(v, 1, Math.max(1, saveData.best));
+  const max = Math.max(1, saveData.best);
+  // wrap around the ends so stepping past the cap loops 1 ↔ best (e.g. 1 ↔ 100)
+  selLevel = ((Math.round(v) - 1) % max + max) % max + 1;
   if (ui.hs_sel) ui.hs_sel.textContent = selLevel;
   if (!silent && selLevel !== prev) { AudioFX.init(); AudioFX.menuTick(); }
 }
