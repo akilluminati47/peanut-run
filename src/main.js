@@ -89,8 +89,11 @@ const AudioFX = {
   },
   // the cursor's "voice": a soft DESCENDING remix of the gold-peanut pickup chime (heal),
   // i.e. the opposite pitch direction to the rising level-select bloops. Fires on hover.
-  cursorChirp() {
-    [988, 659].forEach((f, i) => setTimeout(() => this.blip(f, 0.085, 'sine', 0.045), i * 42));
+  // descending two-note hover chirp; `semi` transposes it by that many semitones so
+  // sliders/toggles can sing a little scale as the cursor sweeps across them
+  cursorChirp(semi = 0) {
+    const m = Math.pow(2, semi / 12);
+    [988, 659].forEach((f, i) => setTimeout(() => this.blip(f * m, 0.085, 'sine', 0.045), i * 42));
   },
   healBig() {
     [659, 880, 1175, 1568].forEach((f, i) => setTimeout(() => this.blip(f, 0.22, 'triangle', 0.09), i * 75));
@@ -1134,6 +1137,25 @@ let _gloveWake = false;     // a mouse move / swipe this frame — wake & reposi
 let _cursorHoverEl = null;  // last clickable the peanut cursor hovered (chirp on hover-enter)
 let _cursorHoverSfxT = 0;   // ms timestamp of the last hover chirp (debounce)
 
+// Musical transpose (semitones) for the hover chirp so the option sliders + view/camera
+// toggles play a little tune as the cursor sweeps them. Sliders (1–10) climb a major
+// pentatonic; the look-sens row sits an octave above the sound-fx row so each sings its
+// own voice. Toggle segments arpeggiate by their position in the group.
+const _PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];   // two octaves of major pentatonic
+const _ARP = [0, 4, 7, 12, 16];                        // major arpeggio for toggle groups
+function hoverSemi(el) {
+  if (el.classList.contains('senspip')) {
+    const v = clamp((+el.dataset.val || 1) - 1, 0, _PENTA.length - 1);
+    const oct = el.closest('#sensrow') ? 12 : 0;        // look-sens an octave above sound-fx
+    return _PENTA[v] + oct;
+  }
+  if (el.classList.contains('segbtn')) {
+    const sibs = [...el.parentElement.children];
+    return _ARP[clamp(sibs.indexOf(el), 0, _ARP.length - 1)];
+  }
+  return 0;
+}
+
 const MENU_STATES = ['menu', 'complete', 'dead', 'paused'];
 
 // identify the controller family for the right button glyphs
@@ -1440,7 +1462,7 @@ function updateMenuCursor(dt) {
   // clickable (debounced so sweeping a button grid doesn't machine-gun the sound)
   if (overBtn && overBtn !== _cursorHoverEl && !pressing) {
     const now = performance.now();
-    if (now - _cursorHoverSfxT > 90) { AudioFX.init(); AudioFX.cursorChirp(); _cursorHoverSfxT = now; }
+    if (now - _cursorHoverSfxT > 90) { AudioFX.init(); AudioFX.cursorChirp(hoverSemi(overBtn)); _cursorHoverSfxT = now; }
   }
   _cursorHoverEl = overBtn || null;
 
