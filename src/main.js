@@ -2310,15 +2310,18 @@ function spawnTomatoSplat(group, x, z) {
   if (level && level.slowZones) level.slowZones.push({ x, z, r });
 }
 
-function makeEnemy(group, def, x, z, rng, isBoss = false) {
+function makeEnemy(group, def, x, z, rng, isBoss = false, forceAnim = null) {
   let map = def.tex || def.texture;            // bosses may supply a custom texture
   if (!map) {
     if (!veggieTextures[def.emoji]) veggieTextures[def.emoji] = emojiTexture(def.emoji);
     map = veggieTextures[def.emoji];
   }
-  // 10% of (non-boss) veggies spawn as the looping animated emoji instead
+  // 10% of (non-boss) veggies spawn as the looping animated emoji instead. forceAnim
+  // overrides the roll (true/false) so a split's children all match the parent's
+  // animated/static look instead of each re-rolling on their own.
   let animEmoji = null;
-  if (!isBoss && _animData[def.emoji] && rng() < 0.10) {
+  const wantAnim = forceAnim === null ? rng() < 0.10 : forceAnim;
+  if (!isBoss && _animData[def.emoji] && wantAnim) {
     const ap = getAnimPlayer(def.emoji);
     if (ap) { map = ap.tex; animEmoji = def.emoji; }
   }
@@ -3269,7 +3272,8 @@ function updateProjectiles(dt) {
                   level.enemies.push(makeEnemy(level.group, {
                     ...e.def, hp: 1, scale: e.def.scale * 0.55, r: e.def.r * 0.6,
                     speed: e.def.speed * 1.4, splits: 0,
-                  }, e.pos.x + Math.cos(a) * rr, e.pos.z + Math.sin(a) * rr, Math.random));
+                  }, e.pos.x + Math.cos(a) * rr, e.pos.z + Math.sin(a) * rr, Math.random,
+                     false, !!e.animEmoji));   // children match the parent: all animated or all static
                 }
               }
             }
