@@ -3252,8 +3252,10 @@ function updateProjectiles(dt) {
               rumble(0.28, 0.18, 70);             // light pop on a veggie kill
               // pea pod bursts into smaller, faster pods (which don't split again).
               // Safe to push here: the projectile loop `break`s right after this hit.
-              if (e.def.splits && level && level.group) {
-                for (let s = 0; s < e.def.splits; s++) {
+              // animated pods burst into 3 mini-pods; the static ones into 2
+              const splitCount = e.animEmoji ? 3 : e.def.splits;
+              if (splitCount && level && level.group) {
+                for (let s = 0; s < splitCount; s++) {
                   const a = Math.random() * Math.PI * 2, rr = 0.5 + Math.random() * 0.6;
                   level.enemies.push(makeEnemy(level.group, {
                     ...e.def, hp: 1, scale: e.def.scale * 0.55, r: e.def.r * 0.6,
