@@ -1806,9 +1806,16 @@ function bindRepeat(el, fn) {
   let timer = null, delay = 300;
   const stop = () => { clearTimeout(timer); timer = null; delay = 300; };
   const step = () => { fn(); delay = Math.max(70, delay * 0.78); timer = setTimeout(step, delay); };
-  el.addEventListener('pointerdown', e => { e.preventDefault(); fn(); delay = 300; timer = setTimeout(step, delay); });
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    // capture the pointer so pointerup still lands here even if the finger/cursor
+    // slides off the button — otherwise the repeat timer keeps ticking on its own
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    fn(); delay = 300; timer = setTimeout(step, delay);
+  });
   el.addEventListener('pointerup', stop);
   el.addEventListener('pointercancel', stop);
+  el.addEventListener('lostpointercapture', stop);   // safety: any capture loss halts the ramp
 }
 bindRepeat(document.getElementById('seldown'), () => setSelLevel(selLevel - 1));
 bindRepeat(document.getElementById('selup'), () => setSelLevel(selLevel + 1));
