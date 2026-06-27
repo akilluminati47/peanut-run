@@ -1437,10 +1437,15 @@ function updateMenuCursor(dt) {
     camBtns.forEach(b => b.classList.remove('gp-hover'));
     if (resumeBtn) resumeBtn.classList.remove('gp-hover');
     if (quitBtn)   quitBtn.classList.remove('gp-hover');
+    // the active number/toggle wiggles to mark the focused choice (red stays the active colour).
+    // keep it idempotent: only the focused row's selected pip/segment carries .choosing, and we
+    // leave it in place across frames so the CSS animation doesn't restart every tick.
+    const rowSel = pauseFocus <= 3 ? ['#sensrow .senspip.on', '#volrow .senspip.on', '#viewseg .segbtn.on', '#camseg .segbtn.on'][pauseFocus] : null;
+    const choosing = rowSel ? document.querySelector(rowSel) : null;
+    document.querySelectorAll('.choosing').forEach(el => { if (el !== choosing) el.classList.remove('choosing'); });
+    if (choosing) choosing.classList.add('choosing');
     if (pauseFocus <= 3) {
       if (optLabels[pauseFocus]) optLabels[pauseFocus].classList.add('focus');
-      if (pauseFocus === 2) viewBtns.forEach(b => b.classList.add('gp-hover'));
-      if (pauseFocus === 3) camBtns.forEach(b => b.classList.add('gp-hover'));
     } else if (pauseFocus === 4) {
       if (resumeBtn) resumeBtn.classList.add('gp-hover');
     } else {
@@ -3262,16 +3267,19 @@ function updateProjectiles(dt) {
               }
               AudioFX.kill();
               rumble(0.28, 0.18, 70);             // light pop on a veggie kill
-              // pea pod bursts into smaller, faster pods (which don't split again).
+              // splitters (peapod, garlic) burst into little crawlers that don't split again.
               // Safe to push here: the projectile loop `break`s right after this hit.
-              // only splitters (peapod, garlic) burst — animated into 3, static into 2
+              // only splitters burst — animated into 3, static into 2.
               const splitCount = e.def.splits ? (e.animEmoji ? 3 : e.def.splits) : 0;
               if (splitCount && level && level.group) {
+                // minis trundle along slowly regardless of how fast the parent was
+                // (garlic is the fastest veggie, so scaling its speed UP made unkillable sprinters)
+                const miniSpeed = Math.min(e.def.speed, 4.5) * 0.8;
                 for (let s = 0; s < splitCount; s++) {
                   const a = Math.random() * Math.PI * 2, rr = 0.5 + Math.random() * 0.6;
                   level.enemies.push(makeEnemy(level.group, {
                     ...e.def, hp: 1, scale: e.def.scale * 0.55, r: e.def.r * 0.6,
-                    speed: e.def.speed * 1.4, splits: 0,
+                    speed: miniSpeed, splits: 0,
                   }, e.pos.x + Math.cos(a) * rr, e.pos.z + Math.sin(a) * rr, Math.random,
                      false, !!e.animEmoji));   // children match the parent: all animated or all static
                 }
