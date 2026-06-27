@@ -2287,15 +2287,18 @@ function makeTeabagMark(group, x, z) {
 // ketchup-blob decal, randomised in size + spin so repeats don't look stamped.
 // Added to the level group, so it's torn down with the rest of the level.
 function spawnTomatoSplat(group, x, z) {
-  const sz = 1.7 + Math.random() * 0.8;
+  // match the XXL footprint of the map's ketchup spills (radius 1.6–3.0)
+  const r = 1.6 + Math.random() * 1.4;
   const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(sz, sz),
+    new THREE.PlaneGeometry(r * 2, r * 2),
     new THREE.MeshBasicMaterial({ map: ketchupTex, transparent: true, depthWrite: false, alphaTest: 0.04, opacity: 0.9 }));
   m.rotation.x = -Math.PI / 2;                 // lie flat on the street
   m.rotation.z = Math.random() * Math.PI * 2;  // spin the blob in-plane
   m.position.set(x, 0.045, z);                 // just above the floor / shadow layer
   m.renderOrder = 1;                           // ground-decal layer, below world sprites
   group.add(m);
+  // ...and slow the player down on it, just like a map spill
+  if (level && level.slowZones) level.slowZones.push({ x, z, r });
 }
 
 function makeEnemy(group, def, x, z, rng, isBoss = false) {
