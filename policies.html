@@ -30,9 +30,16 @@
   }
   /* a proper diner checkerboard band (matches the game's 28px tile = full 2-row checks,
      instead of a skinny clipped strip) — one up top, one at the bottom */
-  .checker{ height:28px; background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 0 0/28px 28px; box-shadow:inset 0 -4px 6px -3px rgba(0,0,0,.35); }
+  .checker{ position:relative; z-index:2; height:28px; background:repeating-conic-gradient(var(--ketchup) 0% 25%, var(--cream) 0% 50%) 0 0/28px 28px; box-shadow:inset 0 -4px 6px -3px rgba(0,0,0,.35); }
   .checker.bottom{ box-shadow:inset 0 4px 6px -3px rgba(0,0,0,.35); }
-  .wrap{ max-width:880px; margin:0 auto; padding:26px 20px 90px; }
+  .wrap{ position:relative; z-index:2; max-width:880px; margin:0 auto; padding:26px 20px 90px; }
+
+  /* looping Lottie veggies stroll across spaced horizontal lanes behind the text.
+     One walker per lane at a time → paths never clip or overlap. */
+  #veg-bg{ position:fixed; inset:0; z-index:1; pointer-events:none; overflow:hidden; opacity:.5; }
+  #veg-bg .veg{ position:absolute; top:0; left:0; will-change:transform;
+    filter:drop-shadow(0 3px 5px rgba(0,0,0,.45)); }
+  #veg-bg .veg canvas, #veg-bg .veg svg{ display:block; width:100%; height:100%; }
 
   .topbar{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding-bottom:18px; }
   .brand{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
@@ -80,6 +87,7 @@
 </style>
 </head>
 <body>
+<div id="veg-bg" aria-hidden="true"></div>
 <div class="checker"></div>
 <div class="wrap">
 
@@ -159,6 +167,114 @@
 </div>
 
 <div class="checker bottom"></div>
+
+<!-- looping Lottie veggies walking across the background in spaced, non-overlapping lanes -->
+<script src="./libs/lottie_canvas.min.js"></script>
+<script>
+(function () {
+  if (typeof lottie === 'undefined') return;
+  if (matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+
+  // the animated-only food set (same Lottie JSONs the game uses)
+  var NAMES = ['avocado','beans','broccoli','burger','carrot','corn','cucumber','garlic',
+    'gingerroot','herb','hotdog','kale','mushroom','onion','peapod','pepper','pizza',
+    'potato','salad','salt','tomato'];
+
+  var bg = document.getElementById('veg-bg');
+  var cache = {};                 // name -> parsed Lottie JSON
+  function load(name) {
+    if (cache[name]) return Promise.resolve(cache[name]);
+    return fetch('assets/sprites/animatedemoji/' + name + '.json')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { cache[name] = j; return j; })
+      .catch(function () { return null; });
+  }
+
+  var LANE_MIN = 130;             // each lane is at least this tall (keeps walkers apart)
+  var lanes = [];                 // active per-lane state, so resize can tear them down
+
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+
+  function runLane(top, laneH) {
+    var lane = { dead: false, anim: null, el: null, raf: 0, timer: 0 };
+    lanes.push(lane);
+
+    function spawn() {
+      if (lane.dead) return;
+      var name = pick(NAMES);
+      load(name).then(function (data) {
+        if (lane.dead) return;
+        if (!data) { lane.timer = setTimeout(spawn, 600); return; }
+
+        var size = laneH * (0.5 + Math.random() * 0.45);   // random size, capped to the lane
+        var slack = laneH - size;
+        var y = top + Math.random() * slack;               // stays fully inside its lane
+        var dir = Math.random() < 0.5 ? 1 : -1;            // 1 = walk right, -1 = walk left
+        var W = window.innerWidth;
+        var startX = dir === 1 ? -size : W;
+        var endX = dir === 1 ? W : -size;
+        var speed = 26 + Math.random() * 38;               // px/s — a leisurely stroll
+        var face = dir === 1 ? '' : ' scaleX(-1)';         // flip to face the way it's heading
+
+        var el = document.createElement('div');
+        el.className = 'veg';
+        el.style.width = el.style.height = size + 'px';
+        el.style.top = y + 'px';
+        el.style.transform = 'translate3d(' + startX + 'px,0,0)' + face;
+        bg.appendChild(el);
+        lane.el = el;
+        lane.anim = lottie.loadAnimation({
+          container: el, renderer: 'canvas', loop: true, autoplay: true, animationData: data,
+        });
+
+        var x = startX, last = 0;
+        function step(t) {
+          if (lane.dead) return;
+          if (!last) last = t;
+          x += dir * speed * (t - last) / 1000;
+          last = t;
+          el.style.transform = 'translate3d(' + x + 'px,0,0)' + face;
+          var done = dir === 1 ? x >= endX : x <= endX;
+          if (done) {
+            if (lane.anim) lane.anim.destroy();
+            el.remove();
+            lane.anim = null; lane.el = null;
+            lane.timer = setTimeout(spawn, 300 + Math.random() * 1600);   // gap before the next walker
+            return;
+          }
+          lane.raf = requestAnimationFrame(step);
+        }
+        lane.raf = requestAnimationFrame(step);
+      });
+    }
+    // stagger the lanes so they don't all enter in a marching row
+    lane.timer = setTimeout(spawn, Math.random() * 2600);
+  }
+
+  function teardown() {
+    lanes.forEach(function (l) {
+      l.dead = true;
+      if (l.raf) cancelAnimationFrame(l.raf);
+      if (l.timer) clearTimeout(l.timer);
+      if (l.anim) l.anim.destroy();
+      if (l.el) l.el.remove();
+    });
+    lanes = [];
+  }
+
+  function build() {
+    teardown();
+    var h = window.innerHeight;
+    var n = Math.max(3, Math.floor(h / LANE_MIN));   // as many spaced lanes as fit
+    var laneH = h / n;
+    for (var i = 0; i < n; i++) runLane(i * laneH, laneH);
+  }
+
+  build();
+  var rz;
+  window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(build, 250); });
+})();
+</script>
 
 <!-- the peanut pointer (same as the game): small, angled like the Windows arrow;
      turns gold, pulses and sparkles over links -->
