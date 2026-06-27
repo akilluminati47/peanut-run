@@ -3211,48 +3211,52 @@ function spawnImplode(pos, color, count, radius, life) {
   }
 }
 
-// Boss busts a drive-thru SLIDE bar: an outward shatter at the point it punches through,
-// then a 3s timer, then the bar reassembles (reverse particles in tickObstacles).
+// Boss busts a drive-thru SLIDE bar: outward shatter at the break point, the bar
+// de-solidifies red (fades out), waits 3s, then re-solidifies red (reverse particles).
 function smashSlide(ob, e) {
   if (ob.broken) return;
   ob.broken = true;
-  ob.mesh.visible = false;
   const idx = level.boxes.indexOf(ob.box);
-  if (idx >= 0) { level.boxes.splice(idx, 1); ob._removed = true; }
+  if (idx >= 0) { level.boxes.splice(idx, 1); ob._removed = true; }   // collision drops immediately
   // burst FROM where the boss breaks through (boss x, clamped to the bar's span)
   const hit = ob.hit || (ob.hit = new THREE.Vector3());
   hit.set(clamp(e.pos.x, ob.box.min.x, ob.box.max.x), ob.mesh.position.y, ob.mesh.position.z);
   spawnBurst(hit, '#ff3b30', 48, 8, { life: 0.9 });    // reddish shatter
   spawnBurst(hit, '#ff8a5c', 24, 5, { life: 0.6 });
-  spawnBurst(hit, '#ffc62e', 30, 7, { life: 0.9 });    // gold debris (the original look, restored)
+  spawnBurst(hit, '#ffc62e', 30, 7, { life: 0.9 });    // gold debris
   spawnBurst(hit, '#fff3d6', 18, 4, { life: 0.5 });
-  spawnBurst(hit, '#8fe6ff', 28, 6, { life: 0.7 });    // heal flash
-  AudioFX.boom(); AudioFX.heal(); rumble(0.6, 0.5, 200);
+  AudioFX.boom(); rumble(0.6, 0.5, 200);
+  ob.dissolveT = _OB_GLOW;     // mesh stays visible and fades out red, then hides
   ob.regenT = 3;
 }
 
-// Per-frame: count down broken slide bars; when the timer ends, reassemble them with
-// inward (reverse) particles and a fading red glow.
+// Per-frame: red de-solidify fade on break, 3s timer, then red re-solidify (reverse particles).
 const _OB_GLOW = 0.6;
 function tickObstacles(dt) {
   if (!level || !level.obstacles) return;
   for (const ob of level.obstacles) {
+    const mat = ob.mesh.material;
+    if (ob.dissolveT > 0) {                               // de-solidify: red glow + fade out
+      ob.dissolveT -= dt;
+      const k = Math.max(0, ob.dissolveT / _OB_GLOW);     // 1 → 0
+      if (mat) { mat.transparent = true; mat.opacity = k; if (mat.emissive) mat.emissive.setRGB(1 - k, 0, 0); }
+      if (ob.dissolveT <= 0 && mat) { ob.mesh.visible = false; mat.opacity = 1; mat.transparent = false; if (mat.emissive) mat.emissive.setRGB(0, 0, 0); }
+    }
     if (ob.broken) {
       ob.regenT -= dt;
-      if (ob.regenT <= 0) {                              // rebuild — reverse particles, then solidify
+      if (ob.regenT <= 0) {                               // rebuild — reverse particles, then solidify
         ob.broken = false;
         ob.mesh.visible = true;
         if (ob._removed) { level.boxes.push(ob.box); ob._removed = false; }
         ob.glowT = _OB_GLOW;
         const hit = ob.hit || ob.mesh.position;
-        spawnImplode(hit, '#8fe6ff', 44, 2.4, 0.55);    // heal flash, converging in
+        spawnImplode(hit, '#ff5a3c', 44, 2.4, 0.55);      // red, converging in
         spawnImplode(hit, '#ffc62e', 28, 1.9, 0.55);
-        AudioFX.heal();
       }
-    } else if (ob.glowT > 0) {
+    } else if (ob.glowT > 0) {                             // re-solidify: fading red glow
       ob.glowT -= dt;
-      const em = ob.mesh.material && ob.mesh.material.emissive;
-      if (em) { const k = Math.max(0, ob.glowT / _OB_GLOW); em.setRGB(k * 0.3, k * 0.85, k); }  // heal-cyan glow
+      const em = mat && mat.emissive;
+      if (em) { const k = Math.max(0, ob.glowT / _OB_GLOW); em.setRGB(k, k * 0.15, k * 0.1); }
     }
   }
 }
