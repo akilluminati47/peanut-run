@@ -1845,7 +1845,7 @@ const VEGGIES = [
   // --- new produce (Fluent sprites) ---
   { emoji: '🧄', name: 'garlic',      hp: 1, speed: 5.8, scale: 0.85, r: 0.40, tier: 2, splits: 2 },   // fast swarmer; bursts into cloves (animated → 3)
   { emoji: '🫒', name: 'olive',       hp: 1, speed: 5.6, scale: 0.78, r: 0.36, tier: 3 },   // tiny + fast
-  { emoji: '🫘', name: 'beans',       hp: 1, speed: 5.0, scale: 0.95, r: 0.44, tier: 3 },   // swarmer
+  { emoji: '🫘', name: 'beans',       hp: 1, speed: 5.0, scale: 0.95, r: 0.44, tier: 3, splits: 2 },   // swarmer; bursts into beans (animated → 3)
   { emoji: '🍄', name: 'mushroom',    hp: 2, speed: 3.9, scale: 1.05, r: 0.48, tier: 3 },
   { emoji: '🌶️', name: 'hotpepper',  hp: 1, speed: 6.4, scale: 0.95, r: 0.42, tier: 4 },   // glass-cannon rusher
   { emoji: '🍠', name: 'sweetpotato', hp: 2, speed: 4.4, scale: 1.22, r: 0.52, tier: 4 },
