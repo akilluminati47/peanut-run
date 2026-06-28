@@ -1116,16 +1116,16 @@ let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
 const CONTROLS = [
   { act: 'Move / strafe', kbm: ['W', 'A', 'S', 'D', '↑↓←→'], pad: 'lstick', touch: 'L STICK' },
   { act: 'Aim / look', kbm: ['MOUSE'], pad: 'rstick', touch: 'HOLD R' },
-  { act: 'Sprint', kbm: ['SHIFT'], pad: 'lb', touch: 'STICK RIM' },
+  { act: 'Sprint (hold / L3 toggle)', kbm: ['SHIFT'], pad: ['lb', 'l3'], touch: 'STICK RIM' },
   { act: 'Jump (sips grease)', kbm: ['SPACE'], pad: 'down', touch: 'JUMP' },
-  { act: 'Slide → crouch (hold)', kbm: ['C'], pad: 'l3', touch: 'SLIDE' },
+  { act: 'Slide → crouch (hold)', kbm: ['C'], pad: 'r3', touch: 'SLIDE' },
   { act: 'Blast peanuts', kbm: ['LMB'], pad: 'rt', touch: 'HOLD R' },
   { act: 'Pause', kbm: ['TAB / timer'], pad: 'start', touch: 'TAP TIMER' },
   { act: 'Camera view', kbm: ['Q'], pad: 'select', touch: '' },
 ];
 function padGlyph(tok, type) {
   const m = {
-    lstick: 'L STICK', rstick: 'R STICK', l3: 'L3',
+    lstick: 'L STICK', rstick: 'R STICK', l3: 'L3', r3: 'R3',
     lb: type === 'ps' ? 'L1' : type === 'switch' ? 'L' : 'LB',
     rt: type === 'ps' ? 'R2' : type === 'switch' ? 'ZR' : 'RT',
     down: type === 'ps' ? '✕' : type === 'switch' ? 'B' : 'A',
@@ -1143,9 +1143,12 @@ function renderControls(el, mode, type) {
     const dots = document.createElement('span'); dots.className = 'dots';
     const keys = document.createElement('span'); keys.className = 'keys';
     if (mode === 'gamepad') {
-      const cap = document.createElement('span');
-      cap.className = 'keycap pad' + (c.pad === 'down' ? ' a' : '');
-      cap.textContent = padGlyph(c.pad, type); keys.appendChild(cap);
+      const toks = Array.isArray(c.pad) ? c.pad : [c.pad];
+      for (const tok of toks) {
+        const cap = document.createElement('span');
+        cap.className = 'keycap pad' + (tok === 'down' ? ' a' : '');
+        cap.textContent = padGlyph(tok, type); keys.appendChild(cap);
+      }
     } else if (mode === 'touch') {
       const cap = document.createElement('span'); cap.className = 'keycap'; cap.textContent = c.touch; keys.appendChild(cap);
     } else {
@@ -1212,12 +1215,12 @@ function padType(id) {
 // gamepad state, refreshed once per frame
 const gp = {
   connected: false, type: 'xbox', lx: 0, ly: 0, rx: 0, ry: 0,
-  lb: false, rt: false, l3: false, aHeld: false,
+  lb: false, rt: false, l3: false, r3: false, aHeld: false, sprintToggle: false,
   jumpEdge: false, aEdge: false, bEdge: false, startEdge: false, decEdge: false, incEdge: false,
   upEdge: false, downEdge: false, selectEdge: false,
   _aPrev: false, _bPrev: false, _startPrev: false, _lPrev: false, _rPrev: false,
   _uPrev: false, _dPrev: false, _selPrev: false,
-  _l3Prev: false, l3DownT: 0, l3TapEdge: false,
+  _l3Prev: false, _r3Prev: false, r3DownT: 0, r3TapEdge: false,
   _jumpBlock: false,   // swallow the jump that the A-press used to CLOSE the pause menu
 };
 function pollGamepad() {
@@ -1227,11 +1230,11 @@ function pollGamepad() {
   gp.connected = !!g;
   gp.jumpEdge = gp.aEdge = gp.bEdge = gp.startEdge = gp.decEdge = gp.incEdge = false;
   if (!g) {
-    gp.lx = gp.ly = gp.rx = gp.ry = 0; gp.lb = gp.rt = gp.l3 = gp.aHeld = false;
-    gp._aPrev = gp._bPrev = gp._startPrev = gp._lPrev = gp._rPrev = gp._l3Prev = false;
+    gp.lx = gp.ly = gp.rx = gp.ry = 0; gp.lb = gp.rt = gp.l3 = gp.r3 = gp.aHeld = false;
+    gp._aPrev = gp._bPrev = gp._startPrev = gp._lPrev = gp._rPrev = gp._l3Prev = gp._r3Prev = false;
     gp._uPrev = gp._dPrev = gp._selPrev = false;
     gp.upEdge = gp.downEdge = gp.selectEdge = false;
-    gp.l3TapEdge = false; gp._jumpBlock = false; return;
+    gp.r3TapEdge = false; gp._jumpBlock = false; gp.sprintToggle = false; return;
   }
   const t = padType(g.id);
   if (t !== gp.type) { gp.type = t; if (inputMode === 'gamepad') refreshControlsUI(); }
@@ -1242,12 +1245,15 @@ function pollGamepad() {
   const val = i => (g.buttons[i] ? g.buttons[i].value : 0);
   gp.lb = pressed(4);                         // LB / L1  → sprint
   gp.rt = val(7) > 0.35 || pressed(7);        // RT / R2  → blast
-  const l3Now = pressed(10);                  // L3 (stick click) → slide/crouch
-  if (l3Now && !gp._l3Prev) {
-    gp.l3DownT = performance.now() / 1000;
-    gp.l3TapEdge = true;                         // slide on press
-  }
+  const l3Now = pressed(10);                  // L3 (left-stick click) → sticky sprint toggle
+  if (l3Now && !gp._l3Prev) gp.sprintToggle = !gp.sprintToggle;   // flip on each press
   gp.l3 = l3Now; gp._l3Prev = l3Now;
+  const r3Now = pressed(11);                  // R3 (right-stick click) → slide/crouch
+  if (r3Now && !gp._r3Prev) {
+    gp.r3DownT = performance.now() / 1000;
+    gp.r3TapEdge = true;                         // slide on press
+  }
+  gp.r3 = r3Now; gp._r3Prev = r3Now;
   gp.aHeld = pressed(0);                       // A held (for cursor press art)
   gp.aEdge = gp.jumpEdge = gp.aHeld && !gp._aPrev; gp._aPrev = gp.aHeld;
   const bNow = pressed(1);                      // B → back / close pause
@@ -1269,7 +1275,7 @@ function pollGamepad() {
   gp.selectEdge = selNow && !gp._selPrev; gp._selPrev = selNow;
   // only switch to gamepad mode on a clear button press or real stick push (0.4),
   // so a resting/drifting controller doesn't steal the active input from kbm
-  if (gp.aHeld || gp.lb || gp.rt || gp.l3 || pressed(1) || sNow || rNow || lNow || selNow ||
+  if (gp.aHeld || gp.lb || gp.rt || gp.l3 || gp.r3 || pressed(1) || sNow || rNow || lNow || selNow ||
       Math.abs(gp.lx) + Math.abs(gp.ly) + Math.abs(gp.rx) + Math.abs(gp.ry) > 0.4) {
     setInputMode('gamepad');
   }
@@ -1329,6 +1335,14 @@ function joyHome() {
   const sz = portrait ? 112 : 140, ml = portrait ? 80 : 40, mb = portrait ? 150 : 96;
   return { x: ml + sz / 2, y: window.innerHeight - mb - sz / 2 };
 }
+// top (client Y) of the action buttons — the move joystick only lives BELOW this line,
+// so its quadrant is tightened to the buttons' highest point across the screen.
+function moveZoneTopY() {
+  const r = tJumpEl.getBoundingClientRect();
+  if (r.height) return r.top;
+  const portrait = window.matchMedia('(orientation:portrait)').matches;   // fallback before layout
+  return window.innerHeight - (portrait ? 169 + 74 : 121 + 90);
+}
 function onTouchStart(e) {
   setInputMode('touch');
   for (const t of e.changedTouches) {
@@ -1339,8 +1353,11 @@ function onTouchStart(e) {
       menuTapId = t.identifier; menuTapX = t.clientX; menuTapY = t.clientY; menuTapMoved = false;
       continue;
     }
-    const left = t.clientX < window.innerWidth * 0.5;
-    if (left && moveId === null) {
+    // move lives only in the bottom-LEFT quadrant: left of centre AND below the top
+    // edge of the JUMP/SLIDE buttons. Everywhere above that line (both sides) is aim,
+    // so you can look/fire with either thumb up top. Same zones in first/third person.
+    const inMoveZone = t.clientX < window.innerWidth * 0.5 && t.clientY >= moveZoneTopY();
+    if (inMoveZone && moveId === null) {
       moveId = t.identifier;
       moveCX = t.clientX; moveCY = t.clientY;                        // floating base = where you touched
       const home = joyHome();                                        // slide the visual base under the finger
@@ -1348,7 +1365,7 @@ function onTouchStart(e) {
       tMoveEl.classList.add('grabbing');
       moveSprint = (performance.now() - lastMoveEnd) < 320;          // double-tap-and-hold = sprint
       updateMove(t.clientX, t.clientY);
-    } else if (!left && aimId === null) {                            // tap/swipe right = aim + fire (crosshair only)
+    } else if (!inMoveZone && aimId === null) {                      // tap/swipe anywhere else = aim + fire (crosshair only)
       aimId = t.identifier; aimLX = t.clientX; aimLY = t.clientY;
       touchAimHeld = true; touch.shoot = true;
     }
@@ -3632,7 +3649,7 @@ function updatePlayer(dt) {
     keys.KeyC || keys.ShiftLeft || keys.ShiftRight ||
     keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight;
   const anyPad = gp.connected && (Math.abs(gp.lx) > 0.15 || Math.abs(gp.ly) > 0.15 ||
-    Math.abs(gp.rx) > 0.15 || Math.abs(gp.ry) > 0.15 || gp.lb || gp.rt || gp.l3 ||
+    Math.abs(gp.rx) > 0.15 || Math.abs(gp.ry) > 0.15 || gp.lb || gp.rt || gp.l3 || gp.r3 ||
     gp.aHeld || gp.jumpEdge || gp.startEdge);
   const anyTouch = !!(touch.mx || touch.my || touch.shoot || touch.jumpEdge ||
     touch.slideEdge || touch.crouchHold || touchAimHeld);
@@ -3672,15 +3689,18 @@ function updatePlayer(dt) {
   }
 
   // sprint / recharge system
-  const wantSprint = keys.ShiftLeft || keys.ShiftRight || gp.lb || touch.sprint;
   const moving = wish.lengthSq() > 0;
+  // L3 sticky sprint toggle: hands-free once armed, but disarms when you stop moving
+  // or run the grease dry (press L3 again to re-arm) — so it only engages while running
+  if (gp.sprintToggle && (!moving || (PLAYER.sprint <= 0 && PLAYER.hp < MAX_HP))) gp.sprintToggle = false;
+  const wantSprint = keys.ShiftLeft || keys.ShiftRight || gp.lb || gp.sprintToggle || touch.sprint;
   let speed = WALK;
 
   // crouch-walk — enter via slide-end (hold C) or hold C while stationary
   if (PLAYER.crouching && (PLAYER.sliding || !PLAYER.onGround)) PLAYER.crouching = false;
 
-  // crouch from standing still: press C/L3 while stationary → immediate crouch (spammable)
-  if (!PLAYER.sliding && !PLAYER.crouching && PLAYER.onGround && !moving && (keys.KeyC || gp.l3 || touch.crouchHold)) {
+  // crouch from standing still: press C/R3 while stationary → immediate crouch (spammable)
+  if (!PLAYER.sliding && !PLAYER.crouching && PLAYER.onGround && !moving && (keys.KeyC || gp.r3 || touch.crouchHold)) {
     PLAYER.crouching = true;
   }
 
@@ -3688,7 +3708,7 @@ function updatePlayer(dt) {
     speed = CROUCH_SPEED;
     PLAYER.curHeight = CROUCH_HEIGHT;
     // stand up when the key/stick/button that initiated crouch is released
-    if (!keys.KeyC && !gp.l3 && !touch.crouchHold) PLAYER.crouching = false;
+    if (!keys.KeyC && !gp.r3 && !touch.crouchHold) PLAYER.crouching = false;
     // TEABAG DANCE → bonus HEALTH peanut: 4 crouches within 4s while standing in a dance
     // spot's radius pops out an extra health peanut (gold off a NUTS box, diamond off a
     // boss X). Works at ANY health and even after the original pickup's been grabbed —
@@ -3769,7 +3789,7 @@ function updatePlayer(dt) {
 
   // slide — always full speed now; the meter freezes during the slide
   PLAYER.slideCD = Math.max(0, PLAYER.slideCD - dt);
-  if ((cSlideEdge || gp.l3TapEdge || touch.slideEdge) && !PLAYER.sliding && PLAYER.onGround && PLAYER.slideCD <= 0 &&
+  if ((cSlideEdge || gp.r3TapEdge || touch.slideEdge) && !PLAYER.sliding && PLAYER.onGround && PLAYER.slideCD <= 0 &&
       wish.lengthSq() > 0 && !frozen) {
     PLAYER.sliding = true;
     PLAYER.slideT = SLIDE_TIME;
@@ -3779,7 +3799,7 @@ function updatePlayer(dt) {
     PLAYER.calmT = 0;
     AudioFX.slide();
   }
-  cSlideEdge = false; gp.l3TapEdge = false;
+  cSlideEdge = false; gp.r3TapEdge = false;
 
   if (PLAYER.sliding) {
     PLAYER.slideT -= dt;
@@ -3788,7 +3808,7 @@ function updatePlayer(dt) {
     PLAYER.move.copy(PLAYER.slideDir).multiplyScalar(sp);
     PLAYER.curHeight = SLIDE_HEIGHT;
     if (PLAYER.slideT <= 0) {
-      // only stand up if there's headroom; if C/L3 still held, crouch instead
+      // only stand up if there's headroom; if C/R3 still held, crouch instead
       let blocked = false;
       for (const b of level.boxes) {
         if (PLAYER.pos.x + PLAYER.radius > b.min.x && PLAYER.pos.x - PLAYER.radius < b.max.x &&
@@ -3797,7 +3817,7 @@ function updatePlayer(dt) {
       }
       if (!blocked) {
         PLAYER.sliding = false;
-        if (keys.KeyC || gp.l3 || touch.crouchHold) {
+        if (keys.KeyC || gp.r3 || touch.crouchHold) {
           PLAYER.crouching = true;
           PLAYER.curHeight = CROUCH_HEIGHT;
         } else {
