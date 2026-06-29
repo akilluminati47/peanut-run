@@ -17,7 +17,7 @@ A fast, greasy, cartoon first/third-person runner-shooter built in vanilla
 | Aim / look | Mouse | Right stick |
 | Sprint (drinks grease) | `Shift` (hold) | LB / L1 (hold), or **L3 to toggle** |
 | Jump (sips grease) | `Space` | A / ✕ |
-| Slide → crouch (hold) | `C` | R3 |
+| Slide → crouch (hold) | `C` / `Ctrl` | R3 |
 | Blast peanuts | `LMB` | RT / R2 |
 | Pause | `Tab` / click timer | Start |
 | Camera view | `Q` | View / Share |

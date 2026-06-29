@@ -1035,8 +1035,9 @@ document.addEventListener('keydown', e => {
     return;
   }
   keys[e.code] = true;
-  if (e.code === 'KeyC') {
-    cDownTime = performance.now() / 1000;   // track press time
+  // C or either Ctrl crouches/slides
+  if (e.code === 'KeyC' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
+    if (!cDownTime) cDownTime = performance.now() / 1000;   // track press time (first crouch key down)
     if (PLAYER.onGround && !PLAYER.sliding && PLAYER.move.length() > 0) {
       cSlideEdge = true;  // slide on press (not on release)
     }
@@ -1072,9 +1073,12 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => {
   keys[e.code] = false;
-  if (e.code === 'KeyC') {
-    PLAYER.crouching = false;
-    cDownTime = 0;
+  // release crouch only once neither C nor either Ctrl is still held
+  if (e.code === 'KeyC' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
+    if (!keys.KeyC && !keys.ControlLeft && !keys.ControlRight) {
+      PLAYER.crouching = false;
+      cDownTime = 0;
+    }
   }
 });
 document.addEventListener('contextmenu', e => e.preventDefault());
@@ -1118,7 +1122,7 @@ const CONTROLS = [
   { act: 'Aim / look', kbm: ['MOUSE'], pad: 'rstick', touch: 'HOLD R' },
   { act: 'Sprint (hold / L3 toggle)', kbm: ['SHIFT'], pad: ['lb', 'l3'], touch: 'STICK RIM' },
   { act: 'Jump (sips grease)', kbm: ['SPACE'], pad: 'down', touch: 'JUMP' },
-  { act: 'Slide → crouch (hold)', kbm: ['C'], pad: 'r3', touch: 'SLIDE' },
+  { act: 'Slide → crouch (hold)', kbm: ['C', 'CTRL'], pad: 'r3', touch: 'SLIDE' },
   { act: 'Blast peanuts', kbm: ['LMB'], pad: 'rt', touch: 'HOLD R' },
   { act: 'Pause', kbm: ['TAB / timer'], pad: 'start', touch: 'TAP TIMER' },
   { act: 'Camera view', kbm: ['Q'], pad: 'select', touch: '' },
@@ -1643,6 +1647,7 @@ function resumeFromPause() {
   // clear held keys so Space/Shift/C — and any WASD/arrow used to drive the pause
   // menu — don't carry over into gameplay as ghost movement
   keys.Space = false; keys.ShiftLeft = false; keys.ShiftRight = false; keys.KeyC = false;
+  keys.ControlLeft = keys.ControlRight = false;
   keys.KeyW = keys.KeyA = keys.KeyS = keys.KeyD = false;
   keys.ArrowUp = keys.ArrowDown = keys.ArrowLeft = keys.ArrowRight = false;
   // the A that confirmed "resume" must not also become a jump this frame / while held
@@ -3646,7 +3651,7 @@ function updatePlayer(dt) {
 
   // idle tracking: ANY input resets the 30s attract-camera timer (read before zeroing)
   const anyKey = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD || keys.Space ||
-    keys.KeyC || keys.ShiftLeft || keys.ShiftRight ||
+    keys.KeyC || keys.ControlLeft || keys.ControlRight || keys.ShiftLeft || keys.ShiftRight ||
     keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight;
   const anyPad = gp.connected && (Math.abs(gp.lx) > 0.15 || Math.abs(gp.ly) > 0.15 ||
     Math.abs(gp.rx) > 0.15 || Math.abs(gp.ry) > 0.15 || gp.lb || gp.rt || gp.l3 || gp.r3 ||
@@ -3694,13 +3699,14 @@ function updatePlayer(dt) {
   // or run the grease dry (press L3 again to re-arm) — so it only engages while running
   if (gp.sprintToggle && (!moving || (PLAYER.sprint <= 0 && PLAYER.hp < MAX_HP))) gp.sprintToggle = false;
   const wantSprint = keys.ShiftLeft || keys.ShiftRight || gp.lb || gp.sprintToggle || touch.sprint;
+  const crouchHeld = keys.KeyC || keys.ControlLeft || keys.ControlRight;   // C or either Ctrl
   let speed = WALK;
 
   // crouch-walk — enter via slide-end (hold C) or hold C while stationary
   if (PLAYER.crouching && (PLAYER.sliding || !PLAYER.onGround)) PLAYER.crouching = false;
 
   // crouch from standing still: press C/R3 while stationary → immediate crouch (spammable)
-  if (!PLAYER.sliding && !PLAYER.crouching && PLAYER.onGround && !moving && (keys.KeyC || gp.r3 || touch.crouchHold)) {
+  if (!PLAYER.sliding && !PLAYER.crouching && PLAYER.onGround && !moving && (crouchHeld || gp.r3 || touch.crouchHold)) {
     PLAYER.crouching = true;
   }
 
@@ -3708,7 +3714,7 @@ function updatePlayer(dt) {
     speed = CROUCH_SPEED;
     PLAYER.curHeight = CROUCH_HEIGHT;
     // stand up when the key/stick/button that initiated crouch is released
-    if (!keys.KeyC && !gp.r3 && !touch.crouchHold) PLAYER.crouching = false;
+    if (!crouchHeld && !gp.r3 && !touch.crouchHold) PLAYER.crouching = false;
     // TEABAG DANCE → bonus HEALTH peanut: 4 crouches within 4s while standing in a dance
     // spot's radius pops out an extra health peanut (gold off a NUTS box, diamond off a
     // boss X). Works at ANY health and even after the original pickup's been grabbed —
@@ -3817,7 +3823,7 @@ function updatePlayer(dt) {
       }
       if (!blocked) {
         PLAYER.sliding = false;
-        if (keys.KeyC || gp.r3 || touch.crouchHold) {
+        if (crouchHeld || gp.r3 || touch.crouchHold) {
           PLAYER.crouching = true;
           PLAYER.curHeight = CROUCH_HEIGHT;
         } else {
