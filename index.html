@@ -443,8 +443,12 @@
   /* secondary big button (CHECK PLEASE! / quit) */
   .bigbtn.alt{background:var(--cream);color:var(--ketchup-dk);box-shadow:0 9px 0 #7a1500, 0 18px 30px rgba(0,0,0,.5);animation:pulse 1.4s ease-in-out infinite;animation-delay:.7s;font-size:24px;}
   .bigbtn.alt:hover, .bigbtn.alt.gp-hover{background:#fff;color:var(--ketchup);}
+  /* runner-mode toggle on the roasted screen — leafy green so it reads apart from RETRY */
+  .bigbtn.runner{background:#6aa84f;color:#fff3d6;box-shadow:0 9px 0 #2f5e22, 0 18px 30px rgba(0,0,0,.5);animation-delay:.35s;}
+  .bigbtn.runner:hover, .bigbtn.runner.gp-hover{background:#7cc05e;color:#fff;}
   .pausebtns{display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:26px;}
-  #dead .bigbtn.alt{margin-top:20px;}
+  #dead .bigbtn{margin-top:20px;}
+  #dead .bigbtn.runner{margin-top:28px;}
 
   /* pause options panel */
   .pausepanel{margin-top:20px;background:var(--cream);border:5px solid var(--grease-dk);border-radius:18px;
@@ -774,6 +778,7 @@
 <div id="dead" class="screen">
   <div class="title" id="deadtitle">YOU GOT<br>ROASTED</div>
   <div class="sub" style="font-size:16px;margin-top:24px">the vegetables won this round</div>
+  <button class="bigbtn runner" id="modebtn">RUNNER MODE</button>
   <button class="bigbtn" id="retrybtn">RETRY LEVEL&nbsp;&nbsp;⏎</button>
   <button class="bigbtn alt" id="deadquitbtn">CHECK PLEASE!</button>
 </div>

@@ -1589,6 +1589,13 @@ document.addEventListener('pointerlockchange', () => {
 /* ======================================================= game state/ui */
 
 let state = 'loading'; // loading | menu | playing | fireworks | complete | dead | paused
+// RUNNER MODE: a stripped-down 3-lane auto-runner (third person, auto-forward, auto-aim).
+// Entered/left from the "YOU GOT ROASTED" screen; carries across levels until you quit.
+let runnerMode = false;
+let runnerLane = 0;                       // -1 / 0 / 1 lane index
+let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
+const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
+const RUNNER_SPEED = SPRINT;              // brisk auto-run pace
 let levelIndex = 1;
 let runLevels = 0;
 let kills = 0;
@@ -1637,6 +1644,7 @@ function updateCamSeg() {
 document.querySelectorAll('#camseg .segbtn').forEach(b => b.addEventListener('click', () => setCamView(b.dataset.cam)));
 function quitToMenu() {
   AudioFX.init(); AudioFX.fireBounce();
+  runnerMode = false;            // back to the menu = back to free run
   try { document.exitPointerLock?.(); } catch (e) { /* ignore */ }
   refreshMenuScores();
   setState('menu');
@@ -1799,6 +1807,11 @@ function setState(s) {
   ui.resume.classList.toggle('on', s === 'paused');
   if (s !== 'playing') ui.crosshair.classList.remove('on');   // updateCamera turns it on while playing
   if (s === 'dead' || s === 'complete' || s === 'menu') ui.bossbar.classList.remove('on');
+  if (s === 'dead') {
+    // the roasted screen offers the opposite mode: enter runner, or drop back to free run
+    const mb = document.getElementById('modebtn');
+    if (mb) mb.textContent = runnerMode ? 'FREE RUN MODE' : 'RUNNER MODE';
+  }
   if (s === 'paused') {
     pauseFocus = 0;
     document.querySelectorAll('#resume .optlabel').forEach(l => l.classList.remove('focus'));
@@ -1849,6 +1862,12 @@ bindRepeat(document.getElementById('selup'), () => setSelLevel(selLevel + 1));
 // the selector number is just a readout now — LETS COOK launches the chosen level
 document.getElementById('nextbtn').addEventListener('click', () => nextLevel());
 document.getElementById('retrybtn').addEventListener('click', () => retryLevel());
+// roasted screen: flip between runner mode and free run, then replay the level in that mode
+document.getElementById('modebtn').addEventListener('click', () => {
+  AudioFX.init(); AudioFX.fireBounce();
+  runnerMode = !runnerMode;
+  retryLevel();
+});
 document.getElementById('resumebtn').addEventListener('click', resumeFromPause);
 document.getElementById('quitbtn').addEventListener('click', quitToMenu);
 document.getElementById('deadquitbtn').addEventListener('click', quitToMenu);
@@ -2386,7 +2405,8 @@ function makeEnemy(group, def, x, z, rng, isBoss = false, forceAnim = null) {
 }
 
 function makeBoss(group, n, x, z, rng, pool, name) {
-  const hp = 55;                            // flat boss health — no scaling with level
+  // flat boss health — no scaling with level; runner mode trims bosses by 66%
+  const hp = runnerMode ? Math.round(55 * 0.34) : 55;
   const def = {
     emoji: pool.emoji, name: name, hp, tex: pool.tex,
     speed: 3.0 + Math.min(2.2, n * 0.08), scale: 3.6, r: 1.7,
@@ -3046,6 +3066,8 @@ function startLevelToast() {
 
 function startRun(atLevel) {
   AudioFX.init();                // ensure audio is live no matter how the run was started
+  runnerMode = false;            // menu always launches free run; runner is opted into when roasted
+  runnerLane = 0;
   levelIndex = atLevel || 1;
   runLevels = 0;
   PLAYER.hp = 3;                 // fresh run starts at base health
@@ -3093,6 +3115,7 @@ function showComplete() {
 function nextLevel() {
   levelIndex = levelIndex >= 100 ? 1 : levelIndex + 1;   // silent wrap to 1 after the L100 cap
   AudioFX.init();
+  runnerLane = 0;                // runner mode carries forward; just recentre the lane
   generateLevel(levelIndex, levelIndex);
   setState('playing');
   lockPointer();
@@ -3106,6 +3129,7 @@ function skipToLevel(n) {
   levelIndex = n;
   unlockTo(n);
   AudioFX.init();
+  runnerLane = 0;
   generateLevel(n, n);
   setState('playing');
   lockPointer();
@@ -3115,10 +3139,12 @@ function skipToLevel(n) {
 function retryLevel() {
   AudioFX.init();
   PLAYER.hp = 3;                 // retry after a roasting starts at base health
+  runnerLane = 0;
   generateLevel(levelIndex, levelIndex);
   setState('playing');
   lockPointer();
-  toast(level.bossLevel ? 'BACK FOR THE BOSS' : 'BACK FROM THE FRYER');
+  toast(runnerMode ? 'RUNNER MODE — LANES & AUTO-BLAST!'
+                   : (level.bossLevel ? 'BACK FOR THE BOSS' : 'BACK FROM THE FRYER'), runnerMode ? 2200 : 1300);
 }
 
 function hurtPlayer(fromPos) {
@@ -3166,26 +3192,40 @@ function shoot() {
     return;
   }
 
-  // aim assist: if the crosshair ray passes near a veggie, target it exactly
-  let target = null, bestS = Infinity;
-  const toE = new THREE.Vector3();
-  for (const e of level.enemies) {
-    if (!e.alive) continue;
-    toE.set(e.pos.x, e.def.scale * 0.7, e.pos.z).sub(camera.position);
-    const s = toE.dot(camDir);
-    if (s < 2 || s > bestS) continue;
-    const distSq = toE.lengthSq() - s * s;
-    const r = e.def.r + 0.5;
-    if (distSq < r * r) {
-      bestS = s;
-      target = camera.position.clone().addScaledVector(camDir, s);
+  // aim assist: if the crosshair ray passes near a veggie, target it exactly.
+  // Runner mode goes further — it auto-aims at the nearest live veggie/boss ahead.
+  let target = null;
+  if (runnerMode) {
+    let best = Infinity;
+    for (const e of level.enemies) {
+      if (!e.alive) continue;
+      const ddx = e.pos.x - PLAYER.pos.x, ddz = e.pos.z - PLAYER.pos.z;
+      if (ddz < -3) continue;                       // only lock onto things ahead (or alongside)
+      const d = ddx * ddx + ddz * ddz;
+      if (d < best) { best = d; target = new THREE.Vector3(e.pos.x, e.def.scale * 0.7, e.pos.z); }
     }
-  }
-  if (!target) {
-    // fall back to where the crosshair ray meets veggie height
-    let t = 60;
-    if (camDir.y < -0.02) t = Math.min(60, (camera.position.y - 0.8) / -camDir.y);
-    target = camera.position.clone().addScaledVector(camDir, t);
+    if (!target) target = new THREE.Vector3(PLAYER.pos.x, PLAYER.curHeight * 0.78, PLAYER.pos.z + 30);
+  } else {
+    let bestS = Infinity;
+    const toE = new THREE.Vector3();
+    for (const e of level.enemies) {
+      if (!e.alive) continue;
+      toE.set(e.pos.x, e.def.scale * 0.7, e.pos.z).sub(camera.position);
+      const s = toE.dot(camDir);
+      if (s < 2 || s > bestS) continue;
+      const distSq = toE.lengthSq() - s * s;
+      const r = e.def.r + 0.5;
+      if (distSq < r * r) {
+        bestS = s;
+        target = camera.position.clone().addScaledVector(camDir, s);
+      }
+    }
+    if (!target) {
+      // fall back to where the crosshair ray meets veggie height
+      let t = 60;
+      if (camDir.y < -0.02) t = Math.min(60, (camera.position.y - 0.8) / -camDir.y);
+      target = camera.position.clone().addScaledVector(camDir, t);
+    }
   }
 
   const from = new THREE.Vector3(
@@ -3635,13 +3675,14 @@ function updatePlayer(dt) {
   // first, then it blends to first person
   const frozen = level.panT > 0;     // movement/aim locked during the intro 360 pan
   const canPlay = state === 'playing' && level.panT <= 0 && level.introT <= 0;
-  PLAYER.aiming = canPlay && saveData.cam !== 'third';  // first or auto->first, third stays TP
+  // first or auto->first, third stays TP — runner mode is always third person
+  PLAYER.aiming = canPlay && saveData.cam !== 'third' && !runnerMode;
 
   // mouse X steers; mouse Y is look pitch in first person, camera tilt in third.
   // touch drag (right zone) feeds the same look deltas.
   mouseDX += touch.lookDX * 2; mouseDY += touch.lookDY * 2; touch.lookDX = touch.lookDY = 0;
   const sens = 0.0022 * sensFactor();
-  if (!frozen) {
+  if (!frozen && !runnerMode) {           // runner mode locks the heading dead ahead
     PLAYER.yaw -= mouseDX * sens;
     // third-person vertical look: drag up (mouseDY<0) tilts the view UP toward the sky
     // (camera drops behind toward the floor); range widened so TP aim can reach high.
@@ -3663,8 +3704,8 @@ function updatePlayer(dt) {
 
   mouseDX = 0; mouseDY = 0;
 
-  // gamepad right stick = look (rate-based)
-  if (gp.connected && !frozen) {
+  // gamepad right stick = look (rate-based) — skipped in runner mode (heading is locked)
+  if (gp.connected && !frozen && !runnerMode) {
     const ls = 2.7 * sensFactor();
     PLAYER.yaw -= gp.rx * ls * dt;
     if (PLAYER.aiming) PLAYER.pitch = clamp(PLAYER.pitch - gp.ry * ls * dt, -1.45, 1.45);
@@ -3674,7 +3715,20 @@ function updatePlayer(dt) {
   const fwd = tmpV.set(Math.sin(PLAYER.yaw), 0, Math.cos(PLAYER.yaw));
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x); // screen-right for this convention
   const wish = new THREE.Vector3();
-  if (!frozen) {
+  if (runnerMode && !frozen) {
+    // auto-run forward; left/right tap-snaps between three fixed lanes
+    const laneRight = keys.KeyD || keys.ArrowRight || (gp.connected && gp.lx > 0.5) || touch.mx > 0.4;
+    const laneLeft  = keys.KeyA || keys.ArrowLeft  || (gp.connected && gp.lx < -0.5) || touch.mx < -0.4;
+    let step = 0;
+    if ((laneRight && !_laneRPrev) || gp.incEdge) step += 1;
+    if ((laneLeft  && !_laneLPrev) || gp.decEdge) step -= 1;
+    _laneRPrev = laneRight; _laneLPrev = laneLeft;
+    if (step) { runnerLane = clamp(runnerLane + step, -1, 1); AudioFX.menuTick(); }
+    // steer along `right` toward this lane's lateral offset, keeping forward drive constant
+    const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
+    const steer = clamp((runnerLane * RUNNER_LANE - curLat) * 1.8, -1, 1);
+    wish.copy(fwd).addScaledVector(right, steer);
+  } else if (!frozen) {
     if (keys.KeyW || keys.ArrowUp)    wish.add(fwd);
     if (keys.KeyS || keys.ArrowDown)  wish.sub(fwd);
     if (keys.KeyD || keys.ArrowRight) wish.add(right);
@@ -3786,6 +3840,9 @@ function updatePlayer(dt) {
       PLAYER.sprint = Math.min(PLAYER.greaseMax, PLAYER.sprint + (PLAYER.onGround ? 17 : 9) * PLAYER.rechargeMult * dt);
     }
   }
+
+  // runner mode auto-runs at a steady brisk pace, independent of the grease meter
+  if (runnerMode) speed = RUNNER_SPEED;
 
   // ketchup slow zones
   for (const sz of level.slowZones) {
@@ -4058,7 +4115,7 @@ function updateCamera(dt, time) {
     b = 0;
   } else {
     // ---- first-person (default) blended with the third-person follow ----
-    const blendTarget = saveData.cam === 'third' ? 0 : 1;  // first by default
+    const blendTarget = (runnerMode || saveData.cam === 'third') ? 0 : 1;  // first by default; runner forces third
     PLAYER.camBlend += (blendTarget - PLAYER.camBlend) * clamp(6 * dt, 0, 1);
     if (Math.abs(PLAYER.camBlend - blendTarget) < 0.0015) PLAYER.camBlend = blendTarget;
     b = PLAYER.camBlend * PLAYER.camBlend * (3 - 2 * PLAYER.camBlend); // smoothstep
@@ -4067,7 +4124,7 @@ function updateCamera(dt, time) {
     let tgtFov = lerp(tpFov, fpFov, b);
 
     // ---- idle attract camera: after 30s of no input, swoop into a close moon-gazing 360 ----
-    const idleOn = state === 'playing' && level.panT <= 0 && level.introT <= 0 &&
+    const idleOn = state === 'playing' && level.panT <= 0 && level.introT <= 0 && !runnerMode &&
       idleT >= (TEST ? 3 : IDLE_DELAY);
     if (idleOn && idleBlend < 0.01) {             // rising edge: seed orbit where the camera is
       idleAng = Math.atan2(camera.position.x - p.x, camera.position.z - p.z);
@@ -4192,7 +4249,8 @@ function updateCamera(dt, time) {
 
   // crosshair: shown whenever you can shoot — but on touch only while the
   // screen is held to aim & fire, so it appears/disappears with the hold
-  const aimReady = state === 'playing' && level && level.panT <= 0 && level.introT <= 0;
+  // runner mode auto-aims, so no crosshair to line up
+  const aimReady = state === 'playing' && level && level.panT <= 0 && level.introT <= 0 && !runnerMode;
   ui.crosshair.classList.toggle('on', aimReady && (inputMode !== 'touch' || touchAimHeld));
 
   // moonlight follows the player: keep the light SUN_DIST away in the moon's
@@ -4353,6 +4411,7 @@ loadAssets().then(() => {
       if (qs.get('screen') === 'dead') { startRun(1); setState('dead'); return; }
       const lv = parseInt(qs.get('level'), 10);
       startRun(lv > 0 ? lv : 1);
+      if (qs.has('runner')) { runnerMode = true; retryLevel(); }   // jump straight into runner mode
       const hp = parseInt(qs.get('hp'), 10);
       if (hp > 0) { PLAYER.hp = clamp(hp, 1, MAX_HP); updateHearts(); }
       if (qs.get('screen') === 'complete') { runLevels = 3; kills = 17; levelTime = 42.318; showComplete(); }
