@@ -1309,12 +1309,22 @@ if (TOUCH_CAPABLE && window.matchMedia && matchMedia('(pointer: coarse)').matche
   inputMode = 'touch';
   document.body.classList.add('touch');
 }
-const touch = { mx: 0, my: 0, lookDX: 0, lookDY: 0, shoot: false, jumpEdge: false, slideEdge: false, crouchHold: false, sprint: false };
+const touch = { mx: 0, my: 0, lookDX: 0, lookDY: 0, shoot: false, jumpEdge: false, slideEdge: false, crouchHold: false, sprint: false, swipeLane: 0 };
 let touchMenuActive = false;
 let touchAimHeld = false;          // right-side hold = aim + fire (crosshair shows while held)
+// runner-mode touch is gesture-based: swipe ←/→ to change lane, swipe ↑ jump, ↓ slide,
+// and any still finger holds fire. Each active finger is tracked here.
+const runnerTouches = new Map();
+const SWIPE_MIN = 28;              // px a finger must travel to count as a swipe (vs a tap-hold)
+function recomputeRunnerShoot() {
+  let firing = false;
+  for (const g of runnerTouches.values()) if (!g.swiped) { firing = true; break; }
+  touch.shoot = firing;
+}
 const touchRoot = document.getElementById('touch');
 const tMoveEl = document.getElementById('tmove');
 const tJumpEl = document.getElementById('tjump'), tSlideEl = document.getElementById('tslide');
+const tSprintEl = document.getElementById('tsprint');
 let moveId = null, moveCX = 0, moveCY = 0, moveSprint = false, lastMoveEnd = -999;
 let aimId = null, aimLX = 0, aimLY = 0;
 let menuTapId = null, menuTapX = 0, menuTapY = 0, menuTapMoved = false;   // menu tap → click on release
@@ -1357,6 +1367,11 @@ function onTouchStart(e) {
       menuTapId = t.identifier; menuTapX = t.clientX; menuTapY = t.clientY; menuTapMoved = false;
       continue;
     }
+    if (runnerMode) {                                               // runner: gesture this finger
+      runnerTouches.set(t.identifier, { sx: t.clientX, sy: t.clientY, swiped: false });
+      recomputeRunnerShoot();                                       // a still finger holds fire
+      continue;
+    }
     // move lives only in the bottom-LEFT quadrant: left of centre AND below the top
     // edge of the JUMP/SLIDE buttons. Everywhere above that line (both sides) is aim,
     // so you can look/fire with either thumb up top. Same zones in first/third person.
@@ -1378,6 +1393,20 @@ function onTouchStart(e) {
 }
 function onTouchMove(e) {
   for (const t of e.changedTouches) {
+    const g = runnerTouches.get(t.identifier);
+    if (g) {
+      if (!g.swiped) {
+        const dx = t.clientX - g.sx, dy = t.clientY - g.sy;
+        if (Math.hypot(dx, dy) >= SWIPE_MIN) {                       // first decisive move = the gesture
+          g.swiped = true;
+          if (Math.abs(dx) > Math.abs(dy)) touch.swipeLane = dx > 0 ? 1 : -1;   // ←/→ lane
+          else if (dy < 0) touch.jumpEdge = true;                    // ↑ jump
+          else touch.slideEdge = true;                              // ↓ slide
+          recomputeRunnerShoot();                                    // a swiping finger stops firing
+        }
+      }
+      continue;
+    }
     if (t.identifier === moveId) {
       updateMove(t.clientX, t.clientY);
     } else if (t.identifier === aimId) {
@@ -1392,6 +1421,7 @@ function onTouchMove(e) {
 }
 function onTouchEnd(e) {
   for (const t of e.changedTouches) {
+    if (runnerTouches.has(t.identifier)) { runnerTouches.delete(t.identifier); recomputeRunnerShoot(); continue; }
     if (t.identifier === moveId) {
       lastMoveEnd = performance.now();
       moveId = null; touch.mx = 0; touch.my = 0; touch.sprint = false; moveSprint = false;
@@ -1419,6 +1449,7 @@ function bindHold(el, on, off) {
 if (TOUCH_CAPABLE) {
   bindHold(tJumpEl, () => { touch.jumpEdge = true; }, () => {});
   bindHold(tSlideEl, () => { touch.slideEdge = true; touch.crouchHold = true; }, () => { touch.crouchHold = false; });
+  if (tSprintEl) bindHold(tSprintEl, () => { touch.sprint = true; }, () => { touch.sprint = false; });
   window.addEventListener('touchstart', onTouchStart, { passive: false });
   window.addEventListener('touchmove', onTouchMove, { passive: false });
   window.addEventListener('touchend', onTouchEnd, { passive: false });
@@ -1595,7 +1626,9 @@ let runnerMode = false;
 let runnerLane = 0;                       // -1 / 0 / 1 lane index
 let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
 const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
-const RUNNER_SPEED = SPRINT;              // brisk auto-run pace
+const RUNNER_SPEED = 11.0;               // base auto-run pace (the sprint button speeds it up)
+const RUNNER_SPRINT = 1.5;               // speed multiplier while sprint is held
+const RUNNER_STOP = 2.3;                  // halt this far short of the burger — never overshoot it
 let levelIndex = 1;
 let runLevels = 0;
 let kills = 0;
@@ -3716,18 +3749,25 @@ function updatePlayer(dt) {
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x); // screen-right for this convention
   const wish = new THREE.Vector3();
   if (runnerMode && !frozen) {
-    // auto-run forward; left/right tap-snaps between three fixed lanes
-    const laneRight = keys.KeyD || keys.ArrowRight || (gp.connected && gp.lx > 0.5) || touch.mx > 0.4;
-    const laneLeft  = keys.KeyA || keys.ArrowLeft  || (gp.connected && gp.lx < -0.5) || touch.mx < -0.4;
+    // auto-run forward; left/right (keys / stick / d-pad / swipe) tap-snaps between three lanes
+    const laneRight = keys.KeyD || keys.ArrowRight || (gp.connected && gp.lx > 0.5);
+    const laneLeft  = keys.KeyA || keys.ArrowLeft  || (gp.connected && gp.lx < -0.5);
     let step = 0;
-    if ((laneRight && !_laneRPrev) || gp.incEdge) step += 1;
-    if ((laneLeft  && !_laneLPrev) || gp.decEdge) step -= 1;
-    _laneRPrev = laneRight; _laneLPrev = laneLeft;
+    if ((laneRight && !_laneRPrev) || gp.incEdge || touch.swipeLane > 0) step += 1;
+    if ((laneLeft  && !_laneLPrev) || gp.decEdge || touch.swipeLane < 0) step -= 1;
+    _laneRPrev = laneRight; _laneLPrev = laneLeft; touch.swipeLane = 0;
     if (step) { runnerLane = clamp(runnerLane + step, -1, 1); AudioFX.menuTick(); }
+    // never run past the burger: ease the forward drive to a halt just short of it. When the
+    // way is clear (no boss), recentre so the peanut lines up and crosses the finish.
+    const toBurger = (level.burgerPos.x - PLAYER.pos.x) * fwd.x + (level.burgerPos.z - PLAYER.pos.z) * fwd.z;
+    const bossBlocking = (level.bosses && level.bosses.some(bz => bz.alive)) ||
+                         (level.bossWave && level.bossWave.length > 0);
+    if (!bossBlocking && toBurger < 9) runnerLane = 0;
+    const fwdGate = clamp((toBurger - RUNNER_STOP) / 2, 0, 1);
     // steer along `right` toward this lane's lateral offset, keeping forward drive constant
     const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
     const steer = clamp((runnerLane * RUNNER_LANE - curLat) * 1.8, -1, 1);
-    wish.copy(fwd).addScaledVector(right, steer);
+    wish.copy(fwd).multiplyScalar(fwdGate).addScaledVector(right, steer);
   } else if (!frozen) {
     if (keys.KeyW || keys.ArrowUp)    wish.add(fwd);
     if (keys.KeyS || keys.ArrowDown)  wish.sub(fwd);
@@ -3841,8 +3881,8 @@ function updatePlayer(dt) {
     }
   }
 
-  // runner mode auto-runs at a steady brisk pace, independent of the grease meter
-  if (runnerMode) speed = RUNNER_SPEED;
+  // runner mode auto-runs at a steady pace (grease-independent); the sprint button/Shift/LB boosts it
+  if (runnerMode) speed = RUNNER_SPEED * (wantSprint ? RUNNER_SPRINT : 1);
 
   // ketchup slow zones
   for (const sz of level.slowZones) {
@@ -3916,6 +3956,12 @@ function updatePlayer(dt) {
     PLAYER.move.x + PLAYER.vel.x, PLAYER.vel.y, PLAYER.move.z + PLAYER.vel.z);
   PLAYER.onGround = resolveEntity(PLAYER.pos, total, PLAYER.radius, PLAYER.curHeight, dt, level.boxes);
   PLAYER.vel.y = total.y;
+
+  // runner mode: hard stop line just short of the burger — a momentum-carrying slide can
+  // outrun the eased forward gate, so this guarantees the peanut never crosses the burger
+  if (runnerMode && PLAYER.pos.z > level.burgerPos.z - RUNNER_STOP) {
+    PLAYER.pos.z = level.burgerPos.z - RUNNER_STOP;
+  }
 
   PLAYER.inv = Math.max(0, PLAYER.inv - dt);
 
@@ -4284,6 +4330,7 @@ function tick() {
 
   // show the on-screen touch controls only while playing on a touch device
   if (touchRoot) touchRoot.classList.toggle('on', inputMode === 'touch' && (state === 'playing' || state === 'fireworks'));
+  if (touchRoot) touchRoot.classList.toggle('runner', runnerMode);   // swap to swipe layout + sprint button
 
   // twinkling stars
   for (const tw of twinkles) {
