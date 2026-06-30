@@ -1618,6 +1618,7 @@ let state = 'loading'; // loading | menu | playing | fireworks | complete | dead
 // Entered/left from the "YOU GOT ROASTED" screen; carries across levels until you quit.
 let runnerMode = false;
 let runnerLane = 0;                       // -1 / 0 / 1 lane index
+let runnerDefend = false;                 // dug in at the burger, spun round to fight a guarding boss
 let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
 const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
 const RUNNER_SPEED = 11.0;               // base auto-run pace (the sprint button speeds it up)
@@ -3095,6 +3096,7 @@ function startRun(atLevel) {
   AudioFX.init();                // ensure audio is live no matter how the run was started
   runnerMode = false;            // menu always launches free run; runner is opted into when roasted
   runnerLane = 0;
+  runnerDefend = false;
   levelIndex = atLevel || 1;
   runLevels = 0;
   PLAYER.hp = 3;                 // fresh run starts at base health
@@ -3227,7 +3229,8 @@ function shoot() {
     for (const e of level.enemies) {
       if (!e.alive) continue;
       const ddx = e.pos.x - PLAYER.pos.x, ddz = e.pos.z - PLAYER.pos.z;
-      if (ddz < -3) continue;                       // only lock onto things ahead (or alongside)
+      if (!runnerDefend && ddz < -3) continue;      // normally lock only ahead; dug in at the
+                                                    // burger, target the boss closing from behind
       const d = ddx * ddx + ddz * ddz;
       if (d < best) { best = d; target = new THREE.Vector3(e.pos.x, e.def.scale * 0.7, e.pos.z); }
     }
@@ -3743,25 +3746,41 @@ function updatePlayer(dt) {
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x); // screen-right for this convention
   const wish = new THREE.Vector3();
   if (runnerMode && !frozen) {
-    // auto-run forward; left/right (keys / stick / d-pad / swipe) tap-snaps between three lanes
-    const laneRight = keys.KeyD || keys.ArrowRight || (gp.connected && gp.lx > 0.5);
-    const laneLeft  = keys.KeyA || keys.ArrowLeft  || (gp.connected && gp.lx < -0.5);
-    let step = 0;
-    if ((laneRight && !_laneRPrev) || gp.incEdge || touch.swipeLane > 0) step += 1;
-    if ((laneLeft  && !_laneLPrev) || gp.decEdge || touch.swipeLane < 0) step -= 1;
-    _laneRPrev = laneRight; _laneLPrev = laneLeft; touch.swipeLane = 0;
-    if (step) { runnerLane = clamp(runnerLane + step, -1, 1); AudioFX.menuTick(); }
-    // never run past the burger: ease the forward drive to a halt just short of it. When the
-    // way is clear (no boss), recentre so the peanut lines up and crosses the finish.
-    const toBurger = (level.burgerPos.x - PLAYER.pos.x) * fwd.x + (level.burgerPos.z - PLAYER.pos.z) * fwd.z;
+    // forward distance to the burger. The run is a straight +z lane, so measure it on the
+    // world z-axis — not `fwd`, which flips once the peanut spins round to face the boss.
+    const toBurger = level.burgerPos.z - PLAYER.pos.z;
     const bossBlocking = (level.bosses && level.bosses.some(bz => bz.alive)) ||
                          (level.bossWave && level.bossWave.length > 0);
-    if (!bossBlocking && toBurger < 9) runnerLane = 0;
-    const fwdGate = clamp((toBurger - RUNNER_STOP) / 2, 0, 1);
-    // steer along `right` toward this lane's lateral offset, keeping forward drive constant
-    const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
-    const steer = clamp((runnerLane * RUNNER_LANE - curLat) * 1.8, -1, 1);
-    wish.copy(fwd).multiplyScalar(fwdGate).addScaledVector(right, steer);
+    // reached the burger but the boss still guards it → dig in: stand on the burger and slow-spin
+    // 180° to face back down the lane, blasting the boss as it closes (auto-aim follows the turn).
+    runnerDefend = bossBlocking && toBurger <= RUNNER_STOP + 0.5;
+    // slow turn: face the boss (yaw π) while dug in, otherwise stay locked toward the burger.
+    PLAYER.yaw = lerp(PLAYER.yaw, runnerDefend ? Math.PI : 0, clamp(2.8 * dt, 0, 1));
+
+    if (runnerDefend) {
+      runnerLane = 0;
+      // ease onto the burger's centre line and up to the stop-line (so it sits inside auto-grab
+      // range), then hold position and let the boss come to us.
+      const dx = level.burgerPos.x - PLAYER.pos.x;
+      if (toBurger > RUNNER_STOP + 0.05 || Math.abs(dx) > 0.08) wish.set(dx, 0, toBurger);
+    } else {
+      // auto-run forward; left/right (keys / stick / d-pad / swipe) tap-snaps between three lanes
+      const laneRight = keys.KeyD || keys.ArrowRight || (gp.connected && gp.lx > 0.5);
+      const laneLeft  = keys.KeyA || keys.ArrowLeft  || (gp.connected && gp.lx < -0.5);
+      let step = 0;
+      if ((laneRight && !_laneRPrev) || gp.incEdge || touch.swipeLane > 0) step += 1;
+      if ((laneLeft  && !_laneLPrev) || gp.decEdge || touch.swipeLane < 0) step -= 1;
+      _laneRPrev = laneRight; _laneLPrev = laneLeft; touch.swipeLane = 0;
+      if (step) { runnerLane = clamp(runnerLane + step, -1, 1); AudioFX.menuTick(); }
+      // never run past the burger: ease the forward drive to a halt just short of it. When the
+      // way is clear (no boss), recentre so the peanut lines up and crosses the finish.
+      if (!bossBlocking && toBurger < 9) runnerLane = 0;
+      const fwdGate = clamp((toBurger - RUNNER_STOP) / 2, 0, 1);
+      // steer along `right` toward this lane's lateral offset, keeping forward drive constant
+      const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
+      const steer = clamp((runnerLane * RUNNER_LANE - curLat) * 1.8, -1, 1);
+      wish.copy(fwd).multiplyScalar(fwdGate).addScaledVector(right, steer);
+    }
   } else if (!frozen) {
     if (keys.KeyW || keys.ArrowUp)    wish.add(fwd);
     if (keys.KeyS || keys.ArrowDown)  wish.sub(fwd);
@@ -4336,6 +4355,11 @@ function tick() {
   if (state === 'playing' || state === 'fireworks') {
     // burger idle animation
     if (level) {
+      // boss levels keep the burger hidden until its guardian boss(es) are down — the boss
+      // appears to guard an empty podium, and the prize only shows once it's defeated.
+      const bossUp = (level.bosses && level.bosses.some(bz => bz.alive)) ||
+                     (level.bossWave && level.bossWave.length > 0);
+      level.burger.visible = !(level.bossLevel && bossUp);
       level.frameT += dt;
       if (level.frameT > 0.09) {
         level.frameT = 0;
