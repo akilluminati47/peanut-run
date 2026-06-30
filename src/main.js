@@ -1312,19 +1312,14 @@ if (TOUCH_CAPABLE && window.matchMedia && matchMedia('(pointer: coarse)').matche
 const touch = { mx: 0, my: 0, lookDX: 0, lookDY: 0, shoot: false, jumpEdge: false, slideEdge: false, crouchHold: false, sprint: false, swipeLane: 0 };
 let touchMenuActive = false;
 let touchAimHeld = false;          // right-side hold = aim + fire (crosshair shows while held)
-// runner-mode touch is gesture-based: swipe ←/→ to change lane, swipe ↑ jump, ↓ slide,
-// and any still finger holds fire. Each active finger is tracked here.
+// runner-mode touch is gesture-based: swipe ←/→ to change lane, swipe ↑ jump, ↓ slide.
+// Shooting and sprinting are their own buttons (SHOOT / SPRINT), like JUMP / SLIDE.
 const runnerTouches = new Map();
-const SWIPE_MIN = 28;              // px a finger must travel to count as a swipe (vs a tap-hold)
-function recomputeRunnerShoot() {
-  let firing = false;
-  for (const g of runnerTouches.values()) if (!g.swiped) { firing = true; break; }
-  touch.shoot = firing;
-}
+const SWIPE_MIN = 28;              // px a finger must travel to count as a swipe
 const touchRoot = document.getElementById('touch');
 const tMoveEl = document.getElementById('tmove');
 const tJumpEl = document.getElementById('tjump'), tSlideEl = document.getElementById('tslide');
-const tSprintEl = document.getElementById('tsprint');
+const tSprintEl = document.getElementById('tsprint'), tShootEl = document.getElementById('tshoot');
 let moveId = null, moveCX = 0, moveCY = 0, moveSprint = false, lastMoveEnd = -999;
 let aimId = null, aimLX = 0, aimLY = 0;
 let menuTapId = null, menuTapX = 0, menuTapY = 0, menuTapMoved = false;   // menu tap → click on release
@@ -1367,9 +1362,8 @@ function onTouchStart(e) {
       menuTapId = t.identifier; menuTapX = t.clientX; menuTapY = t.clientY; menuTapMoved = false;
       continue;
     }
-    if (runnerMode) {                                               // runner: gesture this finger
+    if (runnerMode) {                                               // runner: track this finger for swipes
       runnerTouches.set(t.identifier, { sx: t.clientX, sy: t.clientY, swiped: false });
-      recomputeRunnerShoot();                                       // a still finger holds fire
       continue;
     }
     // move lives only in the bottom-LEFT quadrant: left of centre AND below the top
@@ -1402,7 +1396,6 @@ function onTouchMove(e) {
           if (Math.abs(dx) > Math.abs(dy)) touch.swipeLane = dx > 0 ? 1 : -1;   // ←/→ lane
           else if (dy < 0) touch.jumpEdge = true;                    // ↑ jump
           else touch.slideEdge = true;                              // ↓ slide
-          recomputeRunnerShoot();                                    // a swiping finger stops firing
         }
       }
       continue;
@@ -1421,7 +1414,7 @@ function onTouchMove(e) {
 }
 function onTouchEnd(e) {
   for (const t of e.changedTouches) {
-    if (runnerTouches.has(t.identifier)) { runnerTouches.delete(t.identifier); recomputeRunnerShoot(); continue; }
+    if (runnerTouches.has(t.identifier)) { runnerTouches.delete(t.identifier); continue; }
     if (t.identifier === moveId) {
       lastMoveEnd = performance.now();
       moveId = null; touch.mx = 0; touch.my = 0; touch.sprint = false; moveSprint = false;
@@ -1450,6 +1443,7 @@ if (TOUCH_CAPABLE) {
   bindHold(tJumpEl, () => { touch.jumpEdge = true; }, () => {});
   bindHold(tSlideEl, () => { touch.slideEdge = true; touch.crouchHold = true; }, () => { touch.crouchHold = false; });
   if (tSprintEl) bindHold(tSprintEl, () => { touch.sprint = true; }, () => { touch.sprint = false; });
+  if (tShootEl) bindHold(tShootEl, () => { touch.shoot = true; }, () => { touch.shoot = false; });
   window.addEventListener('touchstart', onTouchStart, { passive: false });
   window.addEventListener('touchmove', onTouchMove, { passive: false });
   window.addEventListener('touchend', onTouchEnd, { passive: false });

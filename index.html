@@ -510,10 +510,12 @@
   /* both action buttons sit up at the joystick's height so they clear the grease meter */
   #tjump{right:30px;bottom:121px;}
   #tslide{right:132px;bottom:121px;background:var(--cream);color:var(--ketchup-dk);}
-  /* runner mode: gestures cover lane/jump/slide/shoot, so only the SPRINT button remains */
-  #tsprint{right:30px;bottom:121px;background:var(--cheese);color:var(--grease);display:none;}
+  /* runner mode: SHOOT + SPRINT buttons mirror JUMP/SLIDE (same spots, same colours);
+     swipes still handle lane/jump/slide */
+  #tshoot{right:30px;bottom:121px;display:none;}                                            /* mustard/grease, like JUMP */
+  #tsprint{right:132px;bottom:121px;background:var(--cream);color:var(--ketchup-dk);display:none;}  /* cream, like SLIDE */
   #touch.runner #tmove,#touch.runner #tjump,#touch.runner #tslide{display:none;}
-  #touch.runner #tsprint{display:block;}
+  #touch.runner #tshoot,#touch.runner #tsprint{display:block;}
   .hint-run{display:none;}
   #touch.runner .hint-free{display:none;}
   #touch.runner .hint-run{display:inline;}
@@ -525,7 +527,8 @@
     #tmove .tnub{width:50px;height:50px;}
     #tjump{right:20px;bottom:169px;}
     #tslide{right:104px;bottom:169px;}
-    #tsprint{right:20px;bottom:169px;}
+    #tshoot{right:20px;bottom:169px;}
+    #tsprint{right:104px;bottom:169px;}
     #mhealth{bottom:170px;}
     #bossname{font-size:13px;letter-spacing:0.5px;}
     #bosshpwrap{height:16px;}
@@ -858,10 +861,11 @@
   <div id="tmove" class="tjoy"><div class="tnub"></div></div>
   <button id="tjump" class="tbtn">JUMP</button>
   <button id="tslide" class="tbtn">SLIDE</button>
+  <button id="tshoot" class="tbtn">SHOOT</button>
   <button id="tsprint" class="tbtn">SPRINT</button>
   <div id="thint">
     <span class="hint-free">L: move (push rim = run) &nbsp;|&nbsp; R: tap &amp; swipe to aim/fire &nbsp;|&nbsp; SLIDE: tap = slide, hold = crouch</span>
-    <span class="hint-run">SWIPE ◄ ► lane &nbsp;|&nbsp; ▲ jump &nbsp;|&nbsp; ▼ slide &nbsp;|&nbsp; TAP shoot &nbsp;|&nbsp; HOLD sprint</span>
+    <span class="hint-run">SWIPE ◄ ► lane &nbsp;|&nbsp; ▲ jump &nbsp;|&nbsp; ▼ slide &nbsp;|&nbsp; SHOOT &amp; SPRINT buttons</span>
   </div>
 </div>
 
