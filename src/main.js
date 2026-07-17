@@ -1618,9 +1618,11 @@ let state = 'loading'; // loading | menu | playing | fireworks | complete | dead
 // Entered/left from the "YOU GOT ROASTED" screen; carries across levels until you quit.
 let runnerMode = false;
 let runnerLane = 0;                       // -1 / 0 / 1 lane index
+let runnerEdgeDodge = 0;                  // extra lateral nudge past an edge lane; springs back to it
 let runnerDefend = false;                 // dug in at the burger, spun round to fight a guarding boss
 let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
 const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
+const RUNNER_EDGE_DODGE = 1.15;           // how far a side swipe past an edge lane leans out
 const RUNNER_SPEED = 11.0;               // base auto-run pace (the sprint button speeds it up)
 const RUNNER_SPRINT = 1.5;               // speed multiplier while sprint is held
 const RUNNER_STOP = 2.3;                  // halt this far short of the burger — never overshoot it
@@ -3075,9 +3077,9 @@ function updateFireworks(dt) {
       rockets.splice(i, 1);
     }
   }
-  // burger floats up and spins through its dance
+  // burger rises smoothly in place — no twist, just a clean lift
   level.burger.position.y = 2.7 + fwTimer * 0.9;
-  level.burger.material.rotation += dt * 2.2;
+  level.burger.material.rotation = 0;
 
   if (fwTimer > 5.2) {
     try { document.exitPointerLock?.(); } catch (_) {}   // unguarded throw here froze the order screen on iPad
@@ -3095,7 +3097,7 @@ function startLevelToast() {
 function startRun(atLevel) {
   AudioFX.init();                // ensure audio is live no matter how the run was started
   runnerMode = false;            // menu always launches free run; runner is opted into when roasted
-  runnerLane = 0;
+  runnerLane = 0; runnerEdgeDodge = 0;
   runnerDefend = false;
   levelIndex = atLevel || 1;
   runLevels = 0;
@@ -3758,7 +3760,7 @@ function updatePlayer(dt) {
     PLAYER.yaw = lerp(PLAYER.yaw, runnerDefend ? Math.PI : 0, clamp(2.8 * dt, 0, 1));
 
     if (runnerDefend) {
-      runnerLane = 0;
+      runnerLane = 0; runnerEdgeDodge = 0;
       // ease onto the burger's centre line and up to the stop-line (so it sits inside auto-grab
       // range), then hold position and let the boss come to us.
       const dx = level.burgerPos.x - PLAYER.pos.x;
@@ -3771,14 +3773,26 @@ function updatePlayer(dt) {
       if ((laneRight && !_laneRPrev) || gp.incEdge || touch.swipeLane > 0) step += 1;
       if ((laneLeft  && !_laneLPrev) || gp.decEdge || touch.swipeLane < 0) step -= 1;
       _laneRPrev = laneRight; _laneLPrev = laneLeft; touch.swipeLane = 0;
-      if (step) { runnerLane = clamp(runnerLane + step, -1, 1); AudioFX.menuTick(); }
+      if (step) {
+        const next = clamp(runnerLane + step, -1, 1);
+        if (next === runnerLane) {
+          // already pinned to an edge lane and swiping further out → lean past it for a
+          // little extra reach; the dodge springs straight back to the lane edge below.
+          runnerEdgeDodge = clamp(runnerEdgeDodge + step * RUNNER_EDGE_DODGE, -RUNNER_EDGE_DODGE, RUNNER_EDGE_DODGE);
+        } else {
+          runnerLane = next;
+        }
+        AudioFX.menuTick();
+      }
       // never run past the burger: ease the forward drive to a halt just short of it. When the
       // way is clear (no boss), recentre so the peanut lines up and crosses the finish.
       if (!bossBlocking && toBurger < 9) runnerLane = 0;
+      // the edge dodge is a momentary lean — always eased back toward the lane edge
+      runnerEdgeDodge = lerp(runnerEdgeDodge, 0, clamp(3.2 * dt, 0, 1));
       const fwdGate = clamp((toBurger - RUNNER_STOP) / 2, 0, 1);
-      // steer along `right` toward this lane's lateral offset, keeping forward drive constant
+      // steer along `right` toward this lane's lateral offset (plus any edge dodge), keeping forward drive constant
       const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
-      const steer = clamp((runnerLane * RUNNER_LANE - curLat) * 1.8, -1, 1);
+      const steer = clamp((runnerLane * RUNNER_LANE + runnerEdgeDodge - curLat) * 1.8, -1, 1);
       wish.copy(fwd).multiplyScalar(fwdGate).addScaledVector(right, steer);
     }
   } else if (!frozen) {
