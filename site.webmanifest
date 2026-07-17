@@ -1,0 +1,16 @@
+{
+  "name": "Peanut Run • Bungulate to the Burger",
+  "short_name": "Peanut Run",
+  "description": "Bungulate to the burger! An endless burger-chasing runner.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#2a2f3a",
+  "theme_color": "#d62300",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" },
+    { "src": "/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}
