@@ -1618,7 +1618,9 @@ let state = 'loading'; // loading | menu | playing | fireworks | complete | dead
 // Entered/left from the "YOU GOT ROASTED" screen; carries across levels until you quit.
 let runnerMode = false;
 let runnerLane = 0;                       // -1 / 0 / 1 lane index
-let runnerEdgeDodge = 0;                  // extra lateral nudge past an edge lane; springs back to it
+let runnerEdgeDodge = 0;                  // current extra lateral offset past an edge lane (eased)
+let runnerDodgeTarget = 0;               // where the dodge is heading (full lane out, or 0 = back home)
+let runnerDodgeHold = 0;                  // seconds to stay leant out before springing back
 let runnerDefend = false;                 // dug in at the burger, spun round to fight a guarding boss
 let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
 const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
@@ -3097,7 +3099,7 @@ function startLevelToast() {
 function startRun(atLevel) {
   AudioFX.init();                // ensure audio is live no matter how the run was started
   runnerMode = false;            // menu always launches free run; runner is opted into when roasted
-  runnerLane = 0; runnerEdgeDodge = 0;
+  runnerLane = 0; runnerEdgeDodge = 0; runnerDodgeTarget = 0; runnerDodgeHold = 0;
   runnerDefend = false;
   levelIndex = atLevel || 1;
   runLevels = 0;
@@ -3760,7 +3762,7 @@ function updatePlayer(dt) {
     PLAYER.yaw = lerp(PLAYER.yaw, runnerDefend ? Math.PI : 0, clamp(2.8 * dt, 0, 1));
 
     if (runnerDefend) {
-      runnerLane = 0; runnerEdgeDodge = 0;
+      runnerLane = 0; runnerEdgeDodge = 0; runnerDodgeTarget = 0; runnerDodgeHold = 0;
       // ease onto the burger's centre line and up to the stop-line (so it sits inside auto-grab
       // range), then hold position and let the boss come to us.
       const dx = level.burgerPos.x - PLAYER.pos.x;
@@ -3776,9 +3778,10 @@ function updatePlayer(dt) {
       if (step) {
         const next = clamp(runnerLane + step, -1, 1);
         if (next === runnerLane) {
-          // already pinned to an edge lane and swiping further out → lean past it for a
-          // little extra reach; the dodge springs straight back to the lane edge below.
-          runnerEdgeDodge = clamp(runnerEdgeDodge + step * RUNNER_EDGE_DODGE, -RUNNER_EDGE_DODGE, RUNNER_EDGE_DODGE);
+          // already pinned to an edge lane and swiping further out → dodge a full lane's
+          // width past it. Hold out there long enough to actually arrive, then spring home.
+          runnerDodgeTarget = step * RUNNER_EDGE_DODGE;
+          runnerDodgeHold = 0.5;
         } else {
           runnerLane = next;
         }
@@ -3787,8 +3790,10 @@ function updatePlayer(dt) {
       // never run past the burger: ease the forward drive to a halt just short of it. When the
       // way is clear (no boss), recentre so the peanut lines up and crosses the finish.
       if (!bossBlocking && toBurger < 9) runnerLane = 0;
-      // the edge dodge is a momentary lean — always eased back toward the lane edge
-      runnerEdgeDodge = lerp(runnerEdgeDodge, 0, clamp(3.2 * dt, 0, 1));
+      // hold the dodge out for a beat (so it reaches a full lane), then release it back home
+      runnerDodgeHold -= dt;
+      if (runnerDodgeHold <= 0) runnerDodgeTarget = 0;
+      runnerEdgeDodge = lerp(runnerEdgeDodge, runnerDodgeTarget, clamp(12 * dt, 0, 1));
       const fwdGate = clamp((toBurger - RUNNER_STOP) / 2, 0, 1);
       // steer along `right` toward this lane's lateral offset (plus any edge dodge), keeping forward drive constant
       const curLat = PLAYER.pos.x * right.x + PLAYER.pos.z * right.z;
