@@ -1622,7 +1622,7 @@ let runnerEdgeDodge = 0;                  // extra lateral nudge past an edge la
 let runnerDefend = false;                 // dug in at the burger, spun round to fight a guarding boss
 let _laneLPrev = false, _laneRPrev = false;   // lane-switch edge tracking
 const RUNNER_LANE = 2.7;                  // lane half-spacing (fits the narrowest corridor)
-const RUNNER_EDGE_DODGE = RUNNER_LANE * 0.66;  // side swipe past an edge lane leans out ~66% of a lane change
+const RUNNER_EDGE_DODGE = RUNNER_LANE;     // side swipe past an edge lane leans out a full lane, then springs back
 const RUNNER_SPEED = 11.0;               // base auto-run pace (the sprint button speeds it up)
 const RUNNER_SPRINT = 1.5;               // speed multiplier while sprint is held
 const RUNNER_STOP = 2.3;                  // halt this far short of the burger — never overshoot it
